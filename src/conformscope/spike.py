@@ -12,28 +12,16 @@ import argparse
 import colorsys
 import io
 import json
-import os
 from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
-from openai import OpenAI
 from PIL import Image, ImageDraw
 
+from conformscope.client import MissingKeyError, make_client
 from conformscope.labels import RoomLabel, read_rooms
 from conformscope.plan import Plan, load_plan
 from conformscope.segment import Mask, point_prompt, segment
-
-BASE_URL = "https://api.meta.ai/v1"
-
-
-def make_client() -> OpenAI:
-    load_dotenv()
-    key = os.environ.get("MODEL_API_KEY")
-    if not key:
-        raise SystemExit("MODEL_API_KEY is not set. Copy .env.example to .env and fill it in.")
-    return OpenAI(base_url=BASE_URL, api_key=key)
 
 
 def draw_overlay(plan: Plan, masks: list[Mask], labels: list[RoomLabel]) -> Image.Image:
@@ -61,14 +49,24 @@ def run_spike(client, plan_path: str | Path, out_root: str | Path) -> Path:
     raw_rooms, reading = read_rooms(client, plan)
     (out / "rooms.json").write_text(raw_rooms, encoding="utf-8")
 
-    concept_raw, concept_masks = segment(client, plan, "room")
-    (out / "sam_concept.txt").write_text(concept_raw, encoding="utf-8")
+    errors: dict[str, str] = {}
+
+    def run_sam(step: str, prompt: str) -> list[Mask]:
+        """One SAM call; a failure is recorded in the summary instead of ending the spike."""
+        try:
+            raw, masks = segment(client, plan, prompt)
+        except Exception as error:
+            errors[step] = f"{type(error).__name__}: {error}"
+            return []
+        (out / f"sam_{step}.txt").write_text(raw, encoding="utf-8")
+        return masks
+
+    concept_masks = run_sam("concept", "room")
     draw_overlay(plan, concept_masks, reading.rooms).save(out / "overlay_concept.png")
 
     point_masks: list[Mask] = []
     if reading.rooms:
-        points_raw, point_masks = segment(client, plan, point_prompt(reading.rooms, plan.width, plan.height))
-        (out / "sam_points.txt").write_text(points_raw, encoding="utf-8")
+        point_masks = run_sam("points", point_prompt(reading.rooms, plan.width, plan.height))
     draw_overlay(plan, point_masks, reading.rooms).save(out / "overlay_points.png")
 
     summary = {
@@ -78,6 +76,7 @@ def run_spike(client, plan_path: str | Path, out_root: str | Path) -> Path:
         "labels": len(reading.rooms),
         "concept_masks": len(concept_masks),
         "point_masks": len(point_masks),
+        "errors": errors,
         "rooms": [asdict(room) for room in reading.rooms],
     }
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -89,6 +88,10 @@ def main() -> None:
     parser.add_argument("plan", help="Plan PDF (first page) or image")
     parser.add_argument("--out", default=".data/spike", help="Output folder (git-ignored)")
     args = parser.parse_args()
-    out = run_spike(make_client(), args.plan, args.out)
+    try:
+        client = make_client()
+    except MissingKeyError as error:
+        raise SystemExit(str(error)) from None
+    out = run_spike(client, args.plan, args.out)
     print(json.dumps(json.loads((out / "summary.json").read_text(encoding="utf-8")), ensure_ascii=False, indent=2))
     print(f"Outputs in {out}")

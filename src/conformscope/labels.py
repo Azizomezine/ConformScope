@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+import jsonschema
+
 from conformscope.plan import Plan
 
 MODEL = "muse-spark-1.3"
@@ -20,9 +22,10 @@ ROOMS_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["name", "room_type", "x", "y"],
+                "required": ["name", "area_m2", "room_type", "x", "y"],
                 "properties": {
-                    "name": {"type": "string"},
+                    "name": {"type": "string", "description": "Label text without the area"},
+                    "area_m2": {"type": ["number", "null"], "description": "Area written on the plan"},
                     "room_type": {
                         "type": "string",
                         "enum": ["living", "bedroom", "kitchen", "bathroom", "wc",
@@ -38,7 +41,8 @@ ROOMS_SCHEMA = {
 
 PROMPT = (
     "This is an architectural floor plan of a home. List every room that has a written "
-    "label. For each, give the label text, the room type, and the centre of the label as a "
+    "label. For each, give the label text, the area written next to it (m², as a number, or "
+    "null), the room type, and the centre of the label as a "
     "point on a 0-1000 grid over the image (x to the right, y down). Also give the drawing "
     "scale if one is written on the plan."
 )
@@ -50,6 +54,7 @@ class RoomLabel:
     room_type: str
     x: int
     y: int
+    area_m2: float | None = None
 
 
 @dataclass(frozen=True)
@@ -64,14 +69,16 @@ def parse_rooms(text: str, width: int, height: int) -> RoomReading:
         data = json.loads(text)
     except json.JSONDecodeError as error:
         raise ValueError(f"Muse Spark reply is not JSON: {text[:80]!r}") from error
-    if not isinstance(data, dict) or not isinstance(data.get("rooms"), list):
-        raise ValueError("Muse Spark reply has no 'rooms' list")
+    try:
+        jsonschema.validate(data, ROOMS_SCHEMA)
+    except jsonschema.ValidationError as error:
+        raise ValueError(f"Muse Spark reply does not match the rooms schema: {error.message}") from error
 
     def to_pixels(norm: int, size: int) -> int:
         return min(max(round(norm * size / 1000), 0), size - 1)
 
     rooms = [
-        RoomLabel(r["name"], r["room_type"], to_pixels(r["x"], width), to_pixels(r["y"], height))
+        RoomLabel(r["name"], r["room_type"], to_pixels(r["x"], width), to_pixels(r["y"], height), r["area_m2"])
         for r in data["rooms"]
     ]
     return RoomReading(scale=data.get("scale"), rooms=rooms)

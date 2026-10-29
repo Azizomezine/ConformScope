@@ -9,7 +9,7 @@ from test_segment import SAMPLE
 
 def _fake_client(sam_calls):
     rooms = {"scale": "1:100", "rooms": [
-        {"name": "Séjour", "room_type": "living", "x": 750, "y": 720},
+        {"name": "Séjour", "area_m2": 24.0, "room_type": "living", "x": 750, "y": 720},
     ]}
 
     def chat_create(**kwargs):
@@ -57,3 +57,25 @@ def test_spike_skips_point_prompts_when_no_labels_are_found(tmp_path):
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert summary["point_masks"] == 0
     assert not (out / "sam_points.txt").exists()
+
+
+def test_a_failing_sam_step_is_recorded_and_the_spike_carries_on(tmp_path):
+    plan_path = tmp_path / "plan.png"
+    Image.new("RGB", (320, 334), "white").save(plan_path)
+    client = _fake_client([])
+    concept = client.responses.create
+
+    def sam_create(**kwargs):
+        if kwargs["input"][0]["content"][0]["text"] != "room":
+            raise RuntimeError("400 bad object prompt")
+        return concept(**kwargs)
+
+    client.responses.create = sam_create
+
+    out = run_spike(client, plan_path, tmp_path / "out")
+
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["concept_masks"] == 1
+    assert summary["point_masks"] == 0
+    assert summary["errors"] == {"points": "RuntimeError: 400 bad object prompt"}
+    assert (out / "overlay_points.png").exists()

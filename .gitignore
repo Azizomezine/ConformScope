@@ -19,6 +19,8 @@ out/
 # Local data and plans
 .data/
 samples/private/
+/*.pdf
+pytest-of-*/
 
 # Tool caches (Muse Code install)
 .npm-cache-temp/
