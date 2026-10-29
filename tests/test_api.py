@@ -106,6 +106,7 @@ def test_a_picture_with_no_sam_answer_still_returns_its_labels_with_a_warning(ma
     assert body["kind"] == "picture"
     assert body["rooms"] == []
     assert any("SAM 3.1" in w for w in body["warnings"])
+    assert body["fixtures"] == []
 
 
 @pytest.mark.skipif(not SAMPLE.exists(), reason="private sample plan not present")
@@ -119,7 +120,10 @@ def test_a_vector_plan_comes_back_with_measured_rooms(make_api):
     bedroom = next(r for r in body["rooms"] if r["written_area_m2"] == 16.14)
     assert bedroom["area_m2"] == pytest.approx(16.14, rel=0.05)
     assert {"name", "room_type", "type_source", "polygon_px", "polygon_m", "circle_m",
-            "circle_px", "warnings"} <= bedroom.keys()
+            "circle_px", "warnings", "fixtures"} <= bedroom.keys()
+    toilet = next(f for f in body["fixtures"] if f["kind"] == "toilet")
+    assert {"kind", "room", "polygon_px", "polygon_m", "outline_source"} <= toilet.keys()
+    assert body["fixtures"].index(toilet) in body["rooms"][toilet["room"]]["fixtures"]
 
 
 def test_corrections_survive_a_reload(make_api, tmp_path):

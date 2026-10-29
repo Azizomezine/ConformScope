@@ -105,8 +105,9 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
                 measured = measure_rooms(client, original, plan, reading)
                 kind, scale_source, px_per_m = measured.kind, measured.scale_source, measured.px_per_m
                 rooms, warnings = enrich([asdict(room) for room in measured.rooms]), measured.warnings
+                fixtures = [asdict(fixture) for fixture in measured.fixtures]
             except Exception as error:
-                kind, scale_source, px_per_m, rooms = None, None, None, []
+                kind, scale_source, px_per_m, rooms, fixtures = None, None, None, [], []
                 warnings = [f"The rooms could not be measured: {error}"]
         except BaseException:
             shutil.rmtree(folder, ignore_errors=True)
@@ -115,7 +116,7 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         body = {"id": plan_id, "width": plan.width, "height": plan.height,
                 "scale": reading.scale, "labels": [asdict(label) for label in reading.rooms],
                 "kind": kind, "scale_source": scale_source, "px_per_m": px_per_m,
-                "rooms": rooms, "warnings": warnings,
+                "rooms": rooms, "fixtures": fixtures, "warnings": warnings,
                 "pt_per_plan_px": pt_per_plan_px(original, plan), "corrections": []}
         (folder / "reading.json").write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
         return body
@@ -157,6 +158,7 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
             stored.update({"kind": measured.kind, "scale_source": measured.scale_source,
                            "px_per_m": measured.px_per_m,
                            "rooms": enrich([asdict(r) for r in measured.rooms]),
+                           "fixtures": [asdict(f) for f in measured.fixtures],
                            "warnings": measured.warnings,
                            "pt_per_plan_px": pt_per_plan_px(original, plan)})
         except MissingKeyError as error:

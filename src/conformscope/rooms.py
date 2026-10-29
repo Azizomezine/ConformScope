@@ -26,6 +26,7 @@ import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
 from conformscope import extract, geometry
+from conformscope.fixtures import MeasuredFixture, assign_rooms, split_fixtures
 from conformscope.labels import Dimension, RoomLabel, RoomReading, read_dimension, type_rooms
 from conformscope.plan import Plan
 from conformscope.segment import point_prompt, segment
@@ -67,6 +68,7 @@ class MeasuredRoom:
     circle_px: tuple[float, float] | None
     warnings: list[str] = field(default_factory=list)
     outline_source: str = "auto"  # "auto" | "merged" | "wall" (issue #6)
+    fixtures: list[int] = field(default_factory=list)  # indices into RoomsResult.fixtures
 
 
 @dataclass
@@ -76,6 +78,7 @@ class RoomsResult:
     px_per_m: float | None               # plan image pixels per metre
     rooms: list[MeasuredRoom]
     warnings: list[str]
+    fixtures: list[MeasuredFixture] = field(default_factory=list)
 
 
 def scale_pt_per_m(text: str | None) -> float | None:
@@ -298,9 +301,11 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
     if drawn.any():
         barrier = barrier | drawn.astype(bool)
     obstacles = extract.rasterize_paths(ex.obstacle_paths, rect, DPI, fill=False, stroke_px=2) & ~wall
-    obstacles |= extract.rasterize_placards(ex.placard_paths, rect, DPI) & ~wall
-    obstacles |= (extract.fixture_cell_mask(ex, wall | barrier | obstacles, DPI)
-                  | extract.toilet_mask(ex, DPI)) & ~wall
+    placards = extract.rasterize_placards(ex.placard_paths, rect, DPI) & ~wall
+    cells = extract.fixture_cell_mask(ex, wall | barrier | obstacles | placards, DPI) & ~wall
+    toilet_pixels = extract.toilet_mask(ex, DPI) & ~wall
+    obstacles |= placards | cells | toilet_pixels
+    fixtures = split_fixtures(placards, cells, toilet_pixels)
     doors = extract.door_seal_mask(ex.door_arc_paths, rect, DPI)
     # Furniture blocks the turning circle, never the room: a label printed on a drawn bed
     # must still grow into the whole bedroom, and a written area counts the floor under it.
@@ -431,7 +436,15 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
             written_area_m2=written, polygon_px=polygon_px, polygon_m=polygon_m,
             circle_m=round(circle_m, 2), circle_px=(round(cx * to_plan, 1), round(cy * to_plan, 1)),
             warnings=room_warnings, outline_source=outline_source))
-    return RoomsResult("vector", scale_source, px_per_m * to_plan, rooms, warnings)
+
+    assign_rooms(fixtures, [shape[0] for shape in shapes], [room.room_type for room in rooms])
+    measured = []
+    for fixture in fixtures:
+        polygon_px, polygon_m, _ = outline(fixture.crop, fixture.origin, px_per_m, to_plan)
+        if fixture.room is not None:
+            rooms[fixture.room].fixtures.append(len(measured))
+        measured.append(MeasuredFixture(fixture.kind, fixture.room, polygon_px, polygon_m))
+    return RoomsResult("vector", scale_source, px_per_m * to_plan, rooms, warnings, measured)
 
 
 # --- pictures ---------------------------------------------------------------------------

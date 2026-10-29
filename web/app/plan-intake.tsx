@@ -16,7 +16,15 @@ type Room = {
   max_diameter_m: number | null;
   verdict: string | null;
   outline_source: string;
+  fixtures?: number[];
   warnings: string[];
+};
+
+type Fixture = {
+  kind: "placard" | "appliance" | "washbasin" | "toilet";
+  room: number | null;
+  polygon_px: [number, number][];
+  outline_source: string;
 };
 
 type Pt = [number, number];
@@ -36,6 +44,7 @@ type PlanReading = {
   pt_per_plan_px: number | null;
   corrections: Correction[];
   rooms: Room[];
+  fixtures?: Fixture[];
   warnings: string[];
 };
 
@@ -50,6 +59,22 @@ const TYPE_COLOURS: Record<string, string> = {
   storage: "#adb5bd",
   other: "#ced4da",
 };
+
+const FIXTURE_COLOURS: Record<Fixture["kind"], string> = {
+  placard: "#6c757d",
+  appliance: "#e09f3e",
+  washbasin: "#1971c2",
+  toilet: "#1971c2",
+};
+
+function fixtureSummary(fixtures: Fixture[], indices: number[] | undefined) {
+  const counts = new Map<string, number>();
+  for (const i of indices ?? []) {
+    const kind = fixtures[i]?.kind;
+    if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts].map(([kind, n]) => (n === 1 ? kind : `${n} ${kind}s`)).join(", ");
+}
 
 const SOURCE_TEXT: Record<Room["type_source"], string> = {
   text: "name on the plan",
@@ -215,6 +240,18 @@ export function PlanIntake() {
                   <title>{roomLabel(room, i)}</title>
                 </polygon>
               ))}
+              {(reading.fixtures ?? []).map((fixture, i) => (
+                <polygon
+                  key={`fixture-${i}`}
+                  points={fixture.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
+                  fill={FIXTURE_COLOURS[fixture.kind]}
+                  fillOpacity={0.25}
+                  stroke={FIXTURE_COLOURS[fixture.kind]}
+                  strokeWidth={2}
+                >
+                  <title>{fixture.kind}</title>
+                </polygon>
+              ))}
               {reading.rooms.map((room, i) =>
                 room.circle_px && room.circle_m !== null && reading.px_per_m ? (
                   <circle
@@ -262,6 +299,9 @@ export function PlanIntake() {
                     {room.area_m2 !== null && ` · ${room.area_m2} m²`}
                     {room.written_area_m2 !== null && ` (written ${room.written_area_m2} m²)`}
                   </span>
+                  {room.fixtures && room.fixtures.length > 0 && (
+                    <span>Fixtures: {fixtureSummary(reading.fixtures ?? [], room.fixtures)}</span>
+                  )}
                   {room.verdict && (
                     <span className={room.conforme ? styles.badgeOk : styles.badgeBad}>{room.verdict}</span>
                   )}
