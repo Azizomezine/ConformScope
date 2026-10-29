@@ -39,14 +39,15 @@ Research behind every choice: [`docs/research/meta-hackathon-stack.md`](docs/res
 | 2 | Oct 30 | **Plan intake.** Upload PDF or image → render page → store. Muse Spark returns room labels, positions and scale as JSON. | Upload a plan, see labelled rooms listed |
 | 3 | Oct 30 | **Rooms.** SAM masks seeded with Muse Spark label points (fallback: vector walls from the PDF) → room polygons in metres. | Each room has an outline and an area |
 | 4 | Oct 31 | **Turning circle check.** Largest inscribed circle per room vs Ø1.50 m. Green / red circle drawn on the plan. | Tests pass on hand-checked rooms |
-| 5 | Nov 1 | **Doors.** Detect doors, measure clear width, check it. | Each door has a width and a verdict |
+| 5 | Oct 30 | **Fixtures.** Placards, appliances, washbasins and toilets shown on the plan (#7); transfer space and washbasin space 0.80 × 1.30 m, green / red (#8); remove a fixture by click (#9); picture plans via Muse Spark boxes refined by SAM 3.1 (#10). | Each toilet has a transfer-space verdict and the home an accessible-WC verdict |
+| 5b | Nov 1 | **Doors.** Detect doors, measure clear width, check it. | Each door has a width and a verdict |
 | 6 | Nov 1 | **Walk the plan.** Rooms + doors as a graph; a wheelchair icon moves through the home and stops where it gets stuck. | The demo moment works end to end |
 | 7 | Nov 2 | **Explain + verify.** Muse Spark writes the plain-language reason and fix; Muse Spark Open on Baseten double-checks each verdict and flags doubtful ones. | Each failure has a human sentence and a confidence |
 | 8 | Nov 2 | **Auditor corrections.** Click a room or door, override the verdict; every correction saved as a JSONL label (Fireworks fine-tune format). | A correction survives a reload |
 | 9 | Nov 3 | **Report PDF + deploy.** Export the report; deploy to Vercel; README with an eval table. | Live URL |
 | 10 | Nov 4 | **Demo video (3 min) + submission.** X post for the Most Viral track. | Submitted |
 
-Cut order if late: 8 → 5 → 7's verifier. Never cut 4 or 6.
+Cut order if late: 8 → #10 → #9 → 5b → 7's verifier. Never cut 4 or 6.
 
 ## Demo video (3 min)
 
