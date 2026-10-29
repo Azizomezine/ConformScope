@@ -1,0 +1,31 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.vercel/
+
+# Local data and plans
+.data/
+samples/private/
+
+# Tool caches (Muse Code install)
+.npm-cache-temp/
+.tmp-override/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
