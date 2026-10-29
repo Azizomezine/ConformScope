@@ -61,19 +61,26 @@
   border: 1px solid #ddd;
 }
 
-.dot {
+.overlay {
   position: absolute;
-  transform: translate(-50%, -50%);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #d32f2f;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
+.warnings {
+  color: #b00020;
+  font-size: 14px;
+  padding-left: 0;
+  list-style: none;
 }
 
 .rooms {
@@ -83,7 +90,49 @@
   padding-left: 20px;
 }
 
-.rooms li span {
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toolbar button {
+  padding: 6px 10px;
+  border: 1px solid #1d3557;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.toolbar button[data-active="true"] {
+  background: #1d3557;
+  color: #fff;
+}
+
+.toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.badgeOk {
+  color: #2e7d32 !important;
+  font-weight: 600;
+}
+
+.badgeBad {
+  color: #c62828 !important;
+  font-weight: 600;
+}
+
+.badgeHand {
+  color: #6a4c00 !important;
+  background: #fff3cd;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.rooms li > span {
   display: block;
   color: #888;
   font-size: 14px;

@@ -12,6 +12,7 @@ dependencies = [
     "meta-sam-parser>=0.1.0",
     "numpy>=2.5.4",
     "openai>=3.41.0",
+    "opencv-python-headless>=5.0.0.93",
     "pillow>=13.0.0",
     "pymupdf>=2.0",
     "python-dotenv>=1.2.4",

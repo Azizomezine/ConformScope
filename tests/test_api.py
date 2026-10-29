@@ -8,6 +8,7 @@ from PIL import Image
 from conformscope.api import create_app
 from conformscope.client import MissingKeyError
 from test_labels import RECORDED
+from test_rooms import SAMPLE
 
 
 def _model_client(reply=RECORDED, error=None):
@@ -39,9 +40,9 @@ def test_upload_returns_the_rooms_muse_spark_read(make_api):
     body = response.json()
     assert (body["width"], body["height"]) == (1754, 1240)
     assert body["scale"] == "1:100"
-    assert len(body["rooms"]) == 8
-    assert body["rooms"][0] == {"name": "Bedroom", "room_type": "bedroom",
-                                "x": 203, "y": 213, "area_m2": 15.31}
+    assert len(body["labels"]) == 8
+    assert body["labels"][0] == {"name": "Bedroom", "room_type": "bedroom",
+                                 "x": 203, "y": 213, "area_m2": 15.31}
 
 
 def test_uploaded_plan_can_be_fetched_again_with_its_image(make_api):
@@ -52,7 +53,8 @@ def test_uploaded_plan_can_be_fetched_again_with_its_image(make_api):
     image = api.get(f"/plans/{plan_id}/image")
 
     assert again.status_code == 200
-    assert len(again.json()["rooms"]) == 8
+    assert again.json() == api.get(f"/plans/{plan_id}").json()
+    assert len(again.json()["labels"]) == 8
     assert image.headers["content-type"] == "image/png"
     assert Image.open(io.BytesIO(image.content)).size == (1754, 1240)
 
@@ -95,3 +97,65 @@ def test_a_missing_key_is_a_503_that_says_so(tmp_path):
     assert response.status_code == 503
     assert "MODEL_API_KEY" in response.json()["detail"]
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_picture_with_no_sam_answer_still_returns_its_labels_with_a_warning(make_api):
+    # The fake client has no SAM endpoint, so segmenting fails; the upload must not.
+    body = make_api().post("/plans", files=_png_upload()).json()
+
+    assert body["kind"] == "picture"
+    assert body["rooms"] == []
+    assert any("SAM 3.1" in w for w in body["warnings"])
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="private sample plan not present")
+def test_a_vector_plan_comes_back_with_measured_rooms(make_api):
+    upload = {"file": ("plan.pdf", SAMPLE.read_bytes(), "application/pdf")}
+
+    body = make_api().post("/plans", files=upload).json()
+
+    assert body["kind"] == "vector"
+    assert body["scale_source"] == "measured"
+    bedroom = next(r for r in body["rooms"] if r["written_area_m2"] == 16.14)
+    assert bedroom["area_m2"] == pytest.approx(16.14, rel=0.05)
+    assert {"name", "room_type", "type_source", "polygon_px", "polygon_m", "circle_m",
+            "circle_px", "warnings"} <= bedroom.keys()
+
+
+def test_corrections_survive_a_reload(make_api, tmp_path):
+    api = make_api()
+    plan_id = api.post("/plans", files=_png_upload()).json()["id"]
+    sent = [{"kind": "wall", "start": [10.0, 10.0], "end": [50.0, 10.0]},
+            {"kind": "merge", "point": [5.0, 5.0], "target_point": [20.0, 20.0]}]
+
+    saved = api.post(f"/plans/{plan_id}/corrections", json={"corrections": sent})
+
+    assert saved.status_code == 200
+    assert saved.json()["corrections"] == sent
+    # A fresh app over the same folder is a reload: the corrections are still there.
+    reloaded = TestClient(create_app(data_dir=tmp_path, model_client=lambda: _model_client()))
+    assert reloaded.get(f"/plans/{plan_id}/corrections").json() == {"corrections": sent}
+    assert reloaded.get(f"/plans/{plan_id}").json()["corrections"] == sent
+
+
+def test_a_bad_correction_is_a_400(make_api):
+    api = make_api()
+    plan_id = api.post("/plans", files=_png_upload()).json()["id"]
+
+    response = api.post(f"/plans/{plan_id}/corrections", json={"corrections": [{"kind": "bogus"}]})
+
+    assert response.status_code == 400
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="private sample plan not present")
+def test_sample_plan_rooms_carry_turning_verdicts(make_api):
+    upload = {"file": ("plan.pdf", SAMPLE.read_bytes(), "application/pdf")}
+
+    body = make_api().post("/plans", files=upload).json()
+
+    assert body["rooms"]
+    for room in body["rooms"]:
+        assert room["conforme"] in (True, False)
+        assert room["verdict"].startswith(("Conforme PMR", "Non conforme PMR"))
+        assert room["max_diameter_m"] > 0
+    assert any(room["conforme"] for room in body["rooms"])

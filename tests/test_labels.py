@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from conformscope.labels import RoomLabel, parse_rooms, read_rooms
+from conformscope.labels import Dimension, RoomLabel, parse_dimension, parse_rooms, parse_types, read_rooms
 from conformscope.plan import Plan
 
 # Muse Spark's reply on Plan_Logement_Niveau_02 (live spike, 2026-10-29), with the area
@@ -86,3 +86,24 @@ def test_read_rooms_sends_the_plan_with_a_json_schema():
     assert sent["response_format"]["type"] == "json_schema"
     image = sent["messages"][0]["content"][1]
     assert image["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_room_types_come_back_keyed_by_the_number_drawn_on_the_plan():
+    text = _reply({"rooms": [{"number": 1, "room_type": "wc"}, {"number": 4, "room_type": "corridor"}]})
+
+    assert parse_types(text) == {1: "wc", 4: "corridor"}
+
+
+def test_a_room_type_outside_the_list_is_a_clear_error():
+    with pytest.raises(ValueError, match="schema"):
+        parse_types(_reply({"rooms": [{"number": 1, "room_type": "garage"}]}))
+
+
+def test_a_dimension_is_placed_in_plan_pixels():
+    text = _reply({"dimension": {"value_m": 3.4, "x1": 100, "y1": 500, "x2": 600, "y2": 500}})
+
+    assert parse_dimension(text, width=2000, height=1000) == Dimension(3.4, 200, 500, 1200, 500)
+
+
+def test_no_dimension_on_the_plan_is_none():
+    assert parse_dimension(_reply({"dimension": None}), 10, 10) is None
