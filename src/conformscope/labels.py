@@ -196,3 +196,59 @@ def read_dimension(client, plan: Plan) -> tuple[str, Dimension | None]:
     """Ask Muse Spark for one written dimension and its two ends, to scale a picture."""
     text = _ask(client, plan.data_url(), DIMENSION_PROMPT, "Dimension", DIMENSION_SCHEMA)
     return text, parse_dimension(text, plan.width, plan.height)
+
+
+FIXTURE_KINDS = ["placard", "appliance", "washbasin", "toilet"]
+
+FIXTURES_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["fixtures"],
+    "properties": {
+        "fixtures": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["kind", "x1", "y1", "x2", "y2"],
+                "properties": {
+                    "kind": {"type": "string", "enum": FIXTURE_KINDS},
+                    "x1": _POINT, "y1": _POINT, "x2": _POINT, "y2": _POINT,
+                },
+            },
+        },
+    },
+}
+
+FIXTURES_PROMPT = (
+    "This is an architectural floor plan of a home. Find every fixture built into it: "
+    "placards (built-in cupboards, drawn as a box with crossed diagonals, sometimes lettered "
+    "PL), toilets, washbasins, and other appliances (oven, hob, sink, dishwasher, washing "
+    "machine). Ignore furniture such as beds, tables and sofas. For each, give its kind and "
+    "the box around it as two corners on a 0-1000 grid over the image (x to the right, y down)."
+)
+
+
+@dataclass(frozen=True)
+class FixtureBox:
+    kind: str
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+def parse_fixtures(text: str, width: int, height: int) -> list[FixtureBox]:
+    """Muse Spark's fixture boxes, in plan pixels with the corners in order."""
+    boxes = []
+    for f in _load(text, FIXTURES_SCHEMA, "fixtures")["fixtures"]:
+        xs = sorted((to_pixels(f["x1"], width), to_pixels(f["x2"], width)))
+        ys = sorted((to_pixels(f["y1"], height), to_pixels(f["y2"], height)))
+        boxes.append(FixtureBox(f["kind"], xs[0], ys[0], xs[1], ys[1]))
+    return boxes
+
+
+def read_fixtures(client, plan: Plan) -> tuple[str, list[FixtureBox]]:
+    """Ask Muse Spark for every fixture on a picture plan, as boxes."""
+    text = _ask(client, plan.data_url(), FIXTURES_PROMPT, "Fixtures", FIXTURES_SCHEMA)
+    return text, parse_fixtures(text, plan.width, plan.height)

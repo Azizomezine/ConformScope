@@ -8,6 +8,7 @@ import numpy as np
 from meta_sam_parser import (
     CompletedOutcome,
     FramePrompt,
+    PromptBox,
     PromptObject,
     PromptPoint,
     build_object_prompt,
@@ -15,7 +16,7 @@ from meta_sam_parser import (
     image_segmentation_format,
 )
 
-from conformscope.labels import RoomLabel
+from conformscope.labels import FixtureBox, RoomLabel
 from conformscope.plan import Plan
 
 MODEL = "sam-3.1"
@@ -48,6 +49,15 @@ def point_prompt(labels: list[RoomLabel], width: int, height: int) -> str:
     objects = [
         PromptObject(id=i, prompts=[FramePrompt(points=[PromptPoint(label.x, label.y)])])
         for i, label in enumerate(labels)
+    ]
+    return build_object_prompt(size=(width, height), objects=objects)
+
+
+def box_prompt(boxes: list[FixtureBox], width: int, height: int) -> str:
+    """One SAM object per fixture, prompted with the box Muse Spark drew round it."""
+    objects = [
+        PromptObject(id=i, prompts=[FramePrompt(box=PromptBox(b.x1, b.y1, b.x2 + 1, b.y2 + 1))])
+        for i, b in enumerate(boxes)
     ]
     return build_object_prompt(size=(width, height), objects=objects)
 

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pymupdf
@@ -150,3 +151,121 @@ def test_sample_plan_a_removed_toilet_is_gone_until_the_corrections_are_cleared(
     assert (count(before), count(after), count(cleared)) == (7, 6, 7)
     assert "No toilet found in this WC" in " ".join(after.rooms[toilet.room].warnings) \
         or after.rooms[toilet.room].room_type != "wc"
+
+
+# --- picture plans (issue #10) ---------------------------------------------------------
+
+def test_muse_spark_fixture_boxes_land_in_plan_pixels():
+    from conformscope.labels import parse_fixtures
+
+    text = json.dumps({"fixtures": [{"kind": "toilet", "x1": 100, "y1": 200, "x2": 150, "y2": 300}]})
+
+    (box,) = parse_fixtures(text, width=1000, height=500)
+
+    assert (box.kind, box.x1, box.y1, box.x2, box.y2) == ("toilet", 100, 100, 150, 150)
+
+
+def test_each_fixture_box_becomes_its_own_sam_box_object():
+    from conformscope.labels import FixtureBox
+    from conformscope.segment import box_prompt
+
+    text = box_prompt([FixtureBox("toilet", 10, 10, 40, 30), FixtureBox("placard", 50, 10, 60, 30)], 100, 50)
+
+    assert text == "<0f>0<|box;x1=10;y1=10;x2=40;y2=30;w=100;h=50|>,1<|box;x1=50;y1=10;x2=60;y2=30;w=100;h=50|>"
+
+
+def _picture_client(fixtures, sam_output=None, sam_error=None):
+    """Muse Spark answers by schema; SAM answers both the room and the fixture prompts."""
+    from test_segment import SAMPLE as ROOM_MASK
+    calls = []
+
+    def chat_create(**kwargs):
+        name = kwargs["response_format"]["json_schema"]["name"]
+        calls.append(name)
+        reply = {"Dimension": {"dimension": {"value_m": 1.0, "x1": 0, "y1": 500, "x2": 100, "y2": 500}},
+                 "Fixtures": {"fixtures": fixtures}}[name]
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(reply)))])
+
+    def sam_create(**kwargs):
+        prompt = kwargs["input"][0]["content"][0]["text"]
+        calls.append("sam-box" if "box;" in prompt else "sam-point")
+        if "box;" in prompt:
+            if sam_error:
+                raise sam_error
+            return SimpleNamespace(output_text=sam_output or "")
+        return SimpleNamespace(output_text=ROOM_MASK)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=chat_create)),
+                             responses=SimpleNamespace(create=sam_create))
+    return client, calls
+
+
+def _picture():
+    from conformscope.labels import RoomLabel, RoomReading
+    from conformscope.plan import Plan
+    # The recorded SAM room mask covers x 211-270, y 228-254 on a 320 x 334 picture.
+    reading = RoomReading("1:100", [RoomLabel("WC", "wc", 240, 240, None)])
+    return Plan(png=b"\x89PNG", width=320, height=334), reading
+
+
+TOILET_BOX = {"kind": "toilet", "x1": 690, "y1": 690, "x2": 720, "y2": 740}  # inside that room
+
+
+def test_a_picture_fixture_keeps_muse_spark_box_when_sam_fails():
+    from conformscope.rooms import picture_rooms
+
+    plan, reading = _picture()
+    client, calls = _picture_client([TOILET_BOX], sam_error=RuntimeError("down"))
+
+    result = picture_rooms(client, plan, reading)
+
+    (fixture,) = result.fixtures
+    assert (fixture.kind, fixture.outline_source, fixture.room) == ("toilet", "muse", 0)
+    xs, ys = zip(*fixture.polygon_px)
+    assert min(xs) == pytest.approx(221, abs=2) and max(xs) == pytest.approx(230, abs=2)
+    assert any("SAM 3.1 could not outline the fixtures" in w for w in result.warnings)
+    assert result.rooms[0].fixtures == [0]
+    assert fixture.space["kind"] == "transfer"
+
+
+def test_a_sam_mask_replaces_the_muse_spark_box():
+    from conformscope.rooms import picture_rooms
+    from test_segment import SAMPLE as RECORDED_MASK  # object 0, at x 211-270, y 228-254
+
+    plan, reading = _picture()
+    client, calls = _picture_client([TOILET_BOX], sam_output=RECORDED_MASK)
+
+    result = picture_rooms(client, plan, reading)
+
+    (fixture,) = result.fixtures
+    assert fixture.outline_source == "sam"
+    xs, _ = zip(*fixture.polygon_px)
+    assert min(xs) >= 210 and max(xs) > 240  # SAM's outline, wider than the box
+    assert calls.count("Fixtures") == 1 and calls.count("sam-box") == 1
+
+
+def test_a_removed_picture_fixture_is_gone():
+    from conformscope.rooms import picture_rooms
+
+    plan, reading = _picture()
+    client, _ = _picture_client([TOILET_BOX], sam_error=RuntimeError("down"))
+
+    result = picture_rooms(client, plan, reading,
+                           corrections=[{"kind": "remove_fixture", "point": [225, 240]}])
+
+    assert result.fixtures == []
+    assert any("No toilet found" in w for w in result.rooms[0].warnings)
+
+
+def test_more_boxes_than_sam_takes_at_once_are_sent_in_batches():
+    from conformscope.rooms import picture_rooms
+    from test_segment import SAMPLE as RECORDED_MASK  # object 0 in each batch
+
+    plan, reading = _picture()
+    client, calls = _picture_client([TOILET_BOX] * 20, sam_output=RECORDED_MASK)
+
+    result = picture_rooms(client, plan, reading)
+
+    assert calls.count("sam-box") == 2
+    sources = [f.outline_source for f in result.fixtures]
+    assert sources[0] == "sam" and sources[16] == "sam" and sources.count("muse") == 18

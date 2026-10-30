@@ -25,6 +25,7 @@ class FixtureMask:
     origin: tuple[int, int]   # where `crop` sits on the grid
     crop: np.ndarray
     room: int | None = None   # index of the room it stands in
+    outline_source: str = "vector"  # "vector" | "muse" | "sam"
 
     def full_mask(self, shape) -> np.ndarray:
         mask = np.zeros(shape, bool)

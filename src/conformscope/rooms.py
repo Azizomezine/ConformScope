@@ -26,10 +26,12 @@ import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
 from conformscope import extract, geometry
-from conformscope.fixtures import OVERLAP_PX, MeasuredFixture, assign_rooms, remove_fixtures, split_fixtures
-from conformscope.labels import Dimension, RoomLabel, RoomReading, read_dimension, type_rooms
+from conformscope.fixtures import (
+    OVERLAP_PX, FixtureMask, MeasuredFixture, assign_rooms, remove_fixtures, split_fixtures)
+from conformscope.labels import (
+    Dimension, RoomLabel, RoomReading, read_dimension, read_fixtures, type_rooms)
 from conformscope.plan import Plan
-from conformscope.segment import point_prompt, segment
+from conformscope.segment import box_prompt, point_prompt, segment
 from conformscope.spaces import accessible_wc, check_spaces, space_body, wcs_without_toilet
 
 # A sheet at 1:1 has this many PDF points per metre; at 1:100, a hundredth of it.
@@ -43,6 +45,7 @@ SAME_ROOM_SHARE = 0.5     # a walls-only region this much inside a labelled room
 MIN_WIDTH_M = 0.6         # narrower than this is a shaft or a gap, not a room
 SIMPLIFY_M = 0.02         # outline tolerance
 SANITARY = {"wc", "bathroom"}
+SAM_MAX_OBJECTS = 16      # SAM 3.1 refuses a prompt with more objects than this
 
 TYPE_WORDS = [
     ("living", r"sejour|salon|living|piece (de vie|a vivre)"),
@@ -198,7 +201,7 @@ def measure_rooms(client, path: str | Path, plan: Plan, reading: RoomReading, co
             result = vector_rooms(client, doc, plan, reading, corrections or [])
         if result is not None:
             return result
-    return picture_rooms(client, plan, reading)
+    return picture_rooms(client, plan, reading, corrections or [])
 
 
 # --- vector PDFs ------------------------------------------------------------------------
@@ -308,10 +311,7 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
     toilet_pixels = extract.toilet_mask(ex, DPI) & ~wall
     fixtures = split_fixtures(placards, cells, toilet_pixels)
     # Issue #9: a fixture the auditor removed blocks nothing, the circle included.
-    removals = [(round(float(c["point"][0]) * DPI / 72), round(float(c["point"][1]) * DPI / 72))
-                for c in (corr if isinstance(corr, dict) else corr.to_dict() for corr in corrections)
-                if c.get("kind") == "remove_fixture"]
-    kept = remove_fixtures(fixtures, removals)
+    kept = remove_fixtures(fixtures, _removal_points(corrections, DPI / 72))
     gone = np.zeros_like(wall)
     for fixture in fixtures:
         if fixture not in kept:
@@ -470,7 +470,43 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
 # --- pictures ---------------------------------------------------------------------------
 
 
-def picture_rooms(client, plan: Plan, reading: RoomReading) -> RoomsResult:
+def _removal_points(corrections, scale: float = 1.0) -> list[tuple[int, int]]:
+    """Where the auditor removed a fixture, as grid pixels (issue #9)."""
+    return [(round(float(c["point"][0]) * scale), round(float(c["point"][1]) * scale))
+            for c in (corr if isinstance(corr, dict) else corr.to_dict() for corr in corrections or [])
+            if c.get("kind") == "remove_fixture"]
+
+
+def _picture_fixtures(client, plan: Plan, warnings: list[str]) -> list[FixtureMask]:
+    """Fixtures on a picture: Muse Spark boxes them, SAM 3.1 outlines each box."""
+    try:
+        _, boxes = read_fixtures(client, plan)
+    except Exception as error:
+        warnings.append(f"Muse Spark could not find the fixtures: {error}")
+        return []
+    if not boxes:
+        return []
+    by_id = {}
+    for start in range(0, len(boxes), SAM_MAX_OBJECTS):
+        batch = boxes[start:start + SAM_MAX_OBJECTS]
+        try:
+            _, masks = segment(client, plan, box_prompt(batch, plan.width, plan.height))
+        except Exception as error:
+            warnings.append(f"SAM 3.1 could not outline the fixtures; using Muse Spark's boxes: {error}")
+            break
+        by_id.update({str(start + int(m.object_id)): m for m in masks})
+    fixtures = []
+    for i, box in enumerate(boxes):
+        mask = by_id.get(str(i))
+        if mask is not None and mask.bits.any():
+            fixtures.append(FixtureMask(box.kind, (mask.left, mask.top), mask.bits, outline_source="sam"))
+        elif box.x2 > box.x1 and box.y2 > box.y1:
+            crop = np.ones((box.y2 - box.y1 + 1, box.x2 - box.x1 + 1), bool)
+            fixtures.append(FixtureMask(box.kind, (box.x1, box.y1), crop, outline_source="muse"))
+    return fixtures
+
+
+def picture_rooms(client, plan: Plan, reading: RoomReading, corrections=None) -> RoomsResult:
     """Rooms from SAM 3.1 masks, one per Muse Spark label point."""
     warnings = ["This plan is a picture with no drawn walls, so its rooms come from SAM 3.1"]
     if not reading.rooms:
@@ -494,15 +530,45 @@ def picture_rooms(client, plan: Plan, reading: RoomReading) -> RoomsResult:
         warnings.append("No written dimension or room areas to scale this picture by; "
                         "enter one known dimension by hand")
 
+    shape = (plan.height, plan.width)
+    room_masks = []
+    for _, m in found:
+        placed = np.zeros(shape, bool)
+        placed[m.top:m.top + m.bits.shape[0], m.left:m.left + m.bits.shape[1]] = m.bits
+        room_masks.append(placed)
+    room_types = [type_from_name(label.name) or label.room_type for label, _ in found]
+    fixtures = _picture_fixtures(client, plan, warnings) if found else []
+    fixtures = remove_fixtures(fixtures, _removal_points(corrections))
+    assign_rooms(fixtures, room_masks, room_types)
+    taken = np.zeros(shape, bool)
+    for fixture in fixtures:
+        taken |= fixture.full_mask(shape)
+
     rooms = []
-    for label, m in found:
+    for (label, m), room_type in zip(found, room_types):
         polygon_px, polygon_m, area_m2 = outline(m.bits, (m.left, m.top), px_per_m or 1.0, 1.0)
-        circle = _circle(m.bits, (m.left, m.top), px_per_m) if px_per_m else None
+        h, w = m.bits.shape
+        free = m.bits & ~taken[m.top:m.top + h, m.left:m.left + w]
+        circle = _circle(free, (m.left, m.top), px_per_m) if px_per_m else None
         rooms.append(MeasuredRoom(
-            name=label.name, room_type=type_from_name(label.name) or label.room_type,
+            name=label.name, room_type=room_type,
             type_source="text", area_m2=round(area_m2, 2) if px_per_m else None,
             written_area_m2=label.area_m2, polygon_px=polygon_px,
             polygon_m=polygon_m if px_per_m else [],
             circle_m=round(circle[0], 2) if circle else None,
             circle_px=(float(circle[1][0]), float(circle[1][1])) if circle else None))
-    return RoomsResult("picture", source, px_per_m, rooms, warnings)
+
+    # A picture has no walls but the rooms' own outlines, which bound the spaces.
+    spaces = (check_spaces(fixtures, room_masks, np.zeros(shape, bool), px_per_m)
+              if px_per_m else [None] * len(fixtures))
+    measured = []
+    for fixture, space in zip(fixtures, spaces):
+        polygon_px, polygon_m, _ = outline(fixture.crop, fixture.origin, px_per_m or 1.0, 1.0)
+        if fixture.room is not None:
+            rooms[fixture.room].fixtures.append(len(measured))
+        measured.append(MeasuredFixture(fixture.kind, fixture.room, polygon_px,
+                                        polygon_m if px_per_m else [], fixture.outline_source,
+                                        space and space_body(space, px_per_m, 1.0)))
+    for i in wcs_without_toilet(room_types, fixtures):
+        rooms[i].warnings.append("No toilet found in this WC — the transfer space could not be checked")
+    return RoomsResult("picture", source, px_per_m, rooms, warnings, measured, accessible_wc(spaces))

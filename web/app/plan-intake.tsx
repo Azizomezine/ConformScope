@@ -273,7 +273,7 @@ export function PlanIntake() {
                   stroke={FIXTURE_COLOURS[fixture.kind]}
                   strokeWidth={2}
                 >
-                  <title>{fixture.kind}</title>
+                  <title>{fixture.outline_source === "vector" ? fixture.kind : `${fixture.kind} (outlined by ${fixture.outline_source === "sam" ? "SAM 3.1" : "Muse Spark"})`}</title>
                 </polygon>
               ))}
               {(reading.fixtures ?? []).map((fixture, i) =>
