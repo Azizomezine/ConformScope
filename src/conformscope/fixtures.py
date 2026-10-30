@@ -18,7 +18,7 @@ MIN_FIXTURE_PX = 20   # fewer pixels than this is a speck left over, not a fixtu
 OVERLAP_PX = 5        # how far one detector's fixture claims the strokes around it
 
 
-@dataclass
+@dataclass(eq=False)  # one fixture is one object: masks do not compare
 class FixtureMask:
     """A fixture on the grid the walls were rasterised on."""
     kind: str                 # "placard" | "appliance" | "washbasin" | "toilet"
@@ -81,3 +81,13 @@ def assign_rooms(fixtures: list[FixtureMask], room_masks: list[np.ndarray],
         fixture.room = int(np.argmax(overlaps))
         if fixture.kind == "appliance" and room_types[fixture.room] in SANITARY:
             fixture.kind = "washbasin"
+
+
+def remove_fixtures(fixtures: list[FixtureMask], points: list[tuple[int, int]]) -> list[FixtureMask]:
+    """The fixtures no point lands on: an auditor's removals, as grid pixels."""
+    def hit(fixture: FixtureMask, x: int, y: int) -> bool:
+        fx, fy = fixture.origin
+        h, w = fixture.crop.shape
+        return 0 <= y - fy < h and 0 <= x - fx < w and bool(fixture.crop[y - fy, x - fx])
+
+    return [f for f in fixtures if not any(hit(f, x, y) for x, y in points)]

@@ -232,3 +232,12 @@ def test_a_room_built_from_a_corrected_mask_carries_wall_provenance():
     assert room.outline_source == "wall"
     assert room.area_m2 == pytest.approx(4.0, rel=0.03)
     assert room.circle_m > 0 and len(room.polygon_m) >= 3
+
+
+def test_a_removed_fixture_round_trips_through_json():
+    from conformscope.corrections import RemoveFixture, corrections_from_json, corrections_to_json
+
+    stored = corrections_to_json([RemoveFixture(point=(12.5, 40))])
+
+    assert corrections_from_json(stored) == [RemoveFixture(point=(12.5, 40.0))]
+    assert '"kind": "remove_fixture"' in stored

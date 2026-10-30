@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pymupdf
 import pytest
 
 from conformscope.fixtures import assign_rooms, split_fixtures
@@ -101,3 +102,51 @@ def test_sample_plan_fixtures_are_found_and_placed_in_their_rooms():
     for fixture in result.fixtures:
         if fixture.kind == "washbasin":
             assert result.rooms[fixture.room].room_type in ("wc", "bathroom")
+
+
+def test_removing_the_fixture_that_blocks_a_transfer_space_turns_it_green():
+    from conformscope.fixtures import FixtureMask, remove_fixtures
+    from conformscope.spaces import check_spaces
+
+    shape = (120, 160)
+    room = _box(shape, 10, 10, 80, 110)
+    toilet = FixtureMask("toilet", (10, 50), np.ones((20, 28), bool), room=0)
+    basin = FixtureMask("washbasin", (38, 10), np.ones((100, 42), bool), room=0)
+    walls = np.zeros(shape, bool)
+    assert not check_spaces([toilet, basin], [room], walls, 50)[0].fits
+
+    kept = remove_fixtures([toilet, basin], [(60, 60)])
+
+    assert kept == [toilet]
+    assert check_spaces(kept, [room], walls, 50)[0].fits
+
+
+def test_a_removal_that_lands_on_no_fixture_removes_nothing():
+    from conformscope.fixtures import FixtureMask, remove_fixtures
+
+    toilet = FixtureMask("toilet", (10, 50), np.ones((20, 28), bool))
+
+    assert remove_fixtures([toilet], [(5, 5), (500, 500)]) == [toilet]
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="private sample plan not present")
+def test_sample_plan_a_removed_toilet_is_gone_until_the_corrections_are_cleared():
+    plan = load_plan(SAMPLE)
+    reading = parse_rooms(RECORDED, plan.width, plan.height)
+    client, _ = _fake_client(json.dumps({"rooms": []}))
+    before = measure_rooms(client, SAMPLE, plan, reading)
+    toilet = next(f for f in before.fixtures if f.kind == "toilet")
+    # The correction is anchored in PDF points; the polygon is in plan pixels.
+    with pymupdf.open(SAMPLE) as doc:
+        pt_per_px = doc[0].rect.width / plan.width
+    xs, ys = zip(*toilet.polygon_px)
+    point = [(min(xs) + max(xs)) / 2 * pt_per_px, (min(ys) + max(ys)) / 2 * pt_per_px]
+
+    after = measure_rooms(client, SAMPLE, plan, reading,
+                          corrections=[{"kind": "remove_fixture", "point": point}])
+    cleared = measure_rooms(client, SAMPLE, plan, reading, corrections=[])
+
+    count = lambda result: [f.kind for f in result.fixtures].count("toilet")
+    assert (count(before), count(after), count(cleared)) == (7, 6, 7)
+    assert "No toilet found in this WC" in " ".join(after.rooms[toilet.room].warnings) \
+        or after.rooms[toilet.room].room_type != "wc"

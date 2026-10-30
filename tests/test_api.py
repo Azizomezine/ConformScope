@@ -132,7 +132,8 @@ def test_corrections_survive_a_reload(make_api, tmp_path):
     api = make_api()
     plan_id = api.post("/plans", files=_png_upload()).json()["id"]
     sent = [{"kind": "wall", "start": [10.0, 10.0], "end": [50.0, 10.0]},
-            {"kind": "merge", "point": [5.0, 5.0], "target_point": [20.0, 20.0]}]
+            {"kind": "merge", "point": [5.0, 5.0], "target_point": [20.0, 20.0]},
+            {"kind": "remove_fixture", "point": [30.0, 40.0]}]
 
     saved = api.post(f"/plans/{plan_id}/corrections", json={"corrections": sent})
 

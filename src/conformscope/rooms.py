@@ -26,7 +26,7 @@ import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
 from conformscope import extract, geometry
-from conformscope.fixtures import MeasuredFixture, assign_rooms, split_fixtures
+from conformscope.fixtures import OVERLAP_PX, MeasuredFixture, assign_rooms, remove_fixtures, split_fixtures
 from conformscope.labels import Dimension, RoomLabel, RoomReading, read_dimension, type_rooms
 from conformscope.plan import Plan
 from conformscope.segment import point_prompt, segment
@@ -306,8 +306,19 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
     placards = extract.rasterize_placards(ex.placard_paths, rect, DPI) & ~wall
     cells = extract.fixture_cell_mask(ex, wall | barrier | obstacles | placards, DPI) & ~wall
     toilet_pixels = extract.toilet_mask(ex, DPI) & ~wall
-    obstacles |= placards | cells | toilet_pixels
     fixtures = split_fixtures(placards, cells, toilet_pixels)
+    # Issue #9: a fixture the auditor removed blocks nothing, the circle included.
+    removals = [(round(float(c["point"][0]) * DPI / 72), round(float(c["point"][1]) * DPI / 72))
+                for c in (corr if isinstance(corr, dict) else corr.to_dict() for corr in corrections)
+                if c.get("kind") == "remove_fixture"]
+    kept = remove_fixtures(fixtures, removals)
+    gone = np.zeros_like(wall)
+    for fixture in fixtures:
+        if fixture not in kept:
+            gone |= fixture.full_mask(wall.shape)
+    gone = cv2.dilate(gone.astype(np.uint8), _disk(OVERLAP_PX)).astype(bool)
+    fixtures = kept
+    obstacles |= (placards | cells | toilet_pixels) & ~gone
     doors = extract.door_seal_mask(ex.door_arc_paths, rect, DPI)
     # Furniture blocks the turning circle, never the room: a label printed on a drawn bed
     # must still grow into the whole bedroom, and a written area counts the floor under it.
@@ -428,7 +439,7 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
         room_type, source, room_warnings = resolve_type(name_type, has_toilet, muse_types.get(i))
         blocked = obstacles | wall | barrier
         if room_type in SANITARY:
-            blocked = blocked | _sanitary_fixtures(ex, mask, DPI)
+            blocked = blocked | (_sanitary_fixtures(ex, mask, DPI) & ~gone)
         origin, crop = _crop(mask)
         h, w = crop.shape
         free = crop & ~blocked[origin[1]:origin[1] + h, origin[0]:origin[0] + w]

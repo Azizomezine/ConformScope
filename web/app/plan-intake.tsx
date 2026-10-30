@@ -40,7 +40,8 @@ type Pt = [number, number];
 
 type Correction =
   | { kind: "merge"; point: Pt; target_point: Pt }
-  | { kind: "wall"; start: Pt; end: Pt };
+  | { kind: "wall"; start: Pt; end: Pt }
+  | { kind: "remove_fixture"; point: Pt };
 
 type PlanReading = {
   id: string;
@@ -109,7 +110,7 @@ export function PlanIntake() {
   const [reading, setReading] = useState<PlanReading | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"none" | "merge" | "wall">("none");
+  const [mode, setMode] = useState<"none" | "merge" | "wall" | "remove">("none");
   const [pending, setPending] = useState<Pt | null>(null);
 
   async function postCorrections(corrections: Correction[]) {
@@ -144,6 +145,10 @@ export function PlanIntake() {
     const yPx = ((event.clientY - rect.top) / rect.height) * reading.height;
     const f = reading.pt_per_plan_px ?? 1;
     const pt: Pt = [Math.round(xPx * f * 10) / 10, Math.round(yPx * f * 10) / 10];
+    if (mode === "remove") {
+      postCorrections([...reading.corrections, { kind: "remove_fixture", point: pt }]);
+      return;
+    }
     if (!pending) {
       setPending(pt);
       return;
@@ -214,6 +219,14 @@ export function PlanIntake() {
           </button>
           <button
             type="button"
+            data-active={mode === "remove"}
+            disabled={busy || !reading.fixtures?.length}
+            onClick={() => { setMode(mode === "remove" ? "none" : "remove"); setPending(null); }}
+          >
+            Remove a fixture
+          </button>
+          <button
+            type="button"
             disabled={busy || reading.corrections.length === 0}
             onClick={() => postCorrections([])}
           >
@@ -222,6 +235,7 @@ export function PlanIntake() {
           <span className={styles.muted}>
             {mode === "merge" && (pending ? "Now click the nook to merge into it." : "Click the room that stays.")}
             {mode === "wall" && (pending ? "Now click the other end of the wall." : "Click one end of the missing wall.")}
+            {mode === "remove" && "Click the fixture that is not there."}
             {mode === "none" && `${reading.corrections.length} correction${reading.corrections.length === 1 ? "" : "s"} saved`}
           </span>
         </div>
