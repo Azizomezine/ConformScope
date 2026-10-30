@@ -25,6 +25,15 @@ type Fixture = {
   room: number | null;
   polygon_px: [number, number][];
   outline_source: string;
+  space: Space | null;
+};
+
+type Space = {
+  kind: "transfer" | "washbasin";
+  fits: boolean;
+  verdict: string;
+  to_confirm: boolean;
+  polygon_px: [number, number][];
 };
 
 type Pt = [number, number];
@@ -45,6 +54,7 @@ type PlanReading = {
   corrections: Correction[];
   rooms: Room[];
   fixtures?: Fixture[];
+  accessible_wc?: boolean | null;
   warnings: string[];
 };
 
@@ -252,6 +262,21 @@ export function PlanIntake() {
                   <title>{fixture.kind}</title>
                 </polygon>
               ))}
+              {(reading.fixtures ?? []).map((fixture, i) =>
+                fixture.space && fixture.space.polygon_px.length > 0 ? (
+                  <polygon
+                    key={`space-${i}`}
+                    points={fixture.space.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
+                    fill={fixture.space.fits ? "#2e7d32" : "#c62828"}
+                    fillOpacity={0.15}
+                    stroke={fixture.space.fits ? "#2e7d32" : "#c62828"}
+                    strokeWidth={3}
+                    strokeDasharray={fixture.space.to_confirm ? "8 6" : undefined}
+                  >
+                    <title>{fixture.space.verdict}</title>
+                  </polygon>
+                ) : null,
+              )}
               {reading.rooms.map((room, i) =>
                 room.circle_px && room.circle_m !== null && reading.px_per_m ? (
                   <circle
@@ -277,6 +302,13 @@ export function PlanIntake() {
               Scale: {reading.scale ?? "not written"}
               {reading.scale_source && ` · ${SCALE_TEXT[reading.scale_source] ?? reading.scale_source}`}
             </p>
+            {reading.accessible_wc != null && (
+              <p className={reading.accessible_wc ? styles.badgeOk : styles.badgeBad}>
+                {reading.accessible_wc
+                  ? "Accessible WC: a toilet has a 0.80 × 1.30 m transfer space"
+                  : "No toilet has a 0.80 × 1.30 m transfer space"}
+              </p>
+            )}
             {reading.warnings.length > 0 && (
               <ul className={styles.warnings}>
                 {reading.warnings.map((warning, i) => (
@@ -302,6 +334,14 @@ export function PlanIntake() {
                   {room.fixtures && room.fixtures.length > 0 && (
                     <span>Fixtures: {fixtureSummary(reading.fixtures ?? [], room.fixtures)}</span>
                   )}
+                  {(room.fixtures ?? []).map((f) => {
+                    const space = reading.fixtures?.[f]?.space;
+                    return space ? (
+                      <span key={`space-${f}`} className={space.fits ? styles.badgeOk : styles.badgeBad}>
+                        {space.verdict}
+                      </span>
+                    ) : null;
+                  })}
                   {room.verdict && (
                     <span className={room.conforme ? styles.badgeOk : styles.badgeBad}>{room.verdict}</span>
                   )}

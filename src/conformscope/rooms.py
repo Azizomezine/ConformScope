@@ -30,6 +30,7 @@ from conformscope.fixtures import MeasuredFixture, assign_rooms, split_fixtures
 from conformscope.labels import Dimension, RoomLabel, RoomReading, read_dimension, type_rooms
 from conformscope.plan import Plan
 from conformscope.segment import point_prompt, segment
+from conformscope.spaces import accessible_wc, check_spaces, space_body, wcs_without_toilet
 
 # A sheet at 1:1 has this many PDF points per metre; at 1:100, a hundredth of it.
 PT_PER_M_AT_1_TO_1 = 72 / 0.0254
@@ -79,6 +80,7 @@ class RoomsResult:
     rooms: list[MeasuredRoom]
     warnings: list[str]
     fixtures: list[MeasuredFixture] = field(default_factory=list)
+    accessible_wc: bool | None = None    # a toilet with a transfer space; None with no toilet
 
 
 def scale_pt_per_m(text: str | None) -> float | None:
@@ -437,14 +439,21 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
             circle_m=round(circle_m, 2), circle_px=(round(cx * to_plan, 1), round(cy * to_plan, 1)),
             warnings=room_warnings, outline_source=outline_source))
 
-    assign_rooms(fixtures, [shape[0] for shape in shapes], [room.room_type for room in rooms])
+    room_masks = [shape[0] for shape in shapes]
+    assign_rooms(fixtures, room_masks, [room.room_type for room in rooms])
+    # Only walls bound a space: a door may swing over it (CONTEXT.md, Transfer space).
+    spaces = check_spaces(fixtures, room_masks, wall | barrier, px_per_m)
     measured = []
-    for fixture in fixtures:
+    for fixture, space in zip(fixtures, spaces):
         polygon_px, polygon_m, _ = outline(fixture.crop, fixture.origin, px_per_m, to_plan)
         if fixture.room is not None:
             rooms[fixture.room].fixtures.append(len(measured))
-        measured.append(MeasuredFixture(fixture.kind, fixture.room, polygon_px, polygon_m))
-    return RoomsResult("vector", scale_source, px_per_m * to_plan, rooms, warnings, measured)
+        measured.append(MeasuredFixture(fixture.kind, fixture.room, polygon_px, polygon_m,
+                                        space=space and space_body(space, px_per_m, to_plan)))
+    for i in wcs_without_toilet([room.room_type for room in rooms], fixtures):
+        rooms[i].warnings.append("No toilet found in this WC — the transfer space could not be checked")
+    return RoomsResult("vector", scale_source, px_per_m * to_plan, rooms, warnings, measured,
+                       accessible_wc(spaces))
 
 
 # --- pictures ---------------------------------------------------------------------------
