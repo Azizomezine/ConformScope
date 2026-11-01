@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type MouseEvent } from "react";
 import styles from "./page.module.css";
 
 type Room = {
@@ -253,10 +253,25 @@ export function PlanIntake() {
   const [walk, setWalk] = useState<Walk | null>(null);
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const reducedMotion = useSyncExternalStore(
+    (notify) => {
+      const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+      mq.addEventListener("change", notify);
+      return () => mq.removeEventListener("change", notify);
+    },
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => false,
+  );
 
   function play(next: Walk | null) {
     setWalk(next);
     setClock(0);
+    // Reduced motion: no rolling icon — land on the end state, stops included.
+    if (reducedMotion && next) {
+      setClock(Math.max(0, next.route.length - 1));
+      setPlaying(false);
+      return;
+    }
     setPlaying(Boolean(next && next.route.length > 1));
   }
 
@@ -678,15 +693,23 @@ export function PlanIntake() {
                 <p>
                   <button type="button" onClick={() => play(walk)} disabled={playing}>
                     {clock > 0 ? "Replay the walk" : "Play the walk"}
-                  </button>
+                  </button>{" "}
+                  {playing && (<button type="button" onClick={() => setPlaying(false)}>Pause</button>)}
                 </p>
+                {walk.unreachable.length > 0 && (
+                  <p className={styles.muted}>
+                    Not reached: {walk.unreachable.map((u) => roomLabel(reading.rooms[u.room], u.room)).join(", ")}
+                  </p>
+                )}
                 {walk.stops.length > 0 && (
                   <ul className={styles.warnings}>
                     {walk.stops.map((stop, i) => (
                       <li key={i}>
                         {stop.kind === "door"
                           ? `Stopped at a door: ${stop.reason}`
-                          : `${roomLabel(reading.rooms[stop.room ?? 0], stop.room ?? 0)}: ${stop.reason}`}
+                          : `${roomLabel(reading.rooms[stop.room ?? 0], stop.room ?? 0)}: ${stop.reason}`}{" "}
+                        {stop.kind === "door" && stop.door !== null && (<button type="button" disabled={busy} onClick={() => postCorrections([...reading.corrections, { kind: "override", target: "door", index: stop.door as number, value: true }])}>Fix it: mark this door wide enough</button>)}
+                        {stop.kind === "turn" && stop.room !== null && (<button type="button" disabled={busy} onClick={() => postCorrections([...reading.corrections, { kind: "override", target: "room", index: stop.room as number, value: true }])}>Fix it: mark this room conforme</button>)}
                       </li>
                     ))}
                   </ul>
