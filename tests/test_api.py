@@ -454,3 +454,36 @@ def test_explain_answers_with_templates_and_no_verifier_when_there_are_no_keys(t
     assert failure["verify"] == {"status": "not_verified"}
     # Kept with the sheet: a second ask costs no model call and answers the same.
     assert api.get(f"/plans/{plan_id}/sheets/0/explain").json() == result
+
+
+# --- verdict overrides + labels (issue #17) --------------------------------------------
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="private sample plan not present")
+def test_an_overridden_verdict_survives_a_reload_and_labels_download(make_api, tmp_path):
+    api = make_api()
+    upload = {"file": ("plan.pdf", SAMPLE.read_bytes(), "application/pdf")}
+    plan_id, opened = _open(api, upload)
+    rooms = opened.json()["rooms"]
+    index = next(i for i, room in enumerate(rooms) if room["conforme"] is not None)
+    before = rooms[index]
+
+    posted = api.post(f"/plans/{plan_id}/sheets/0/corrections",
+                      json={"corrections": [{"kind": "override", "target": "room",
+                                             "index": index, "value": not before["conforme"]}]})
+    assert posted.status_code == 200
+    room = posted.json()["rooms"][index]
+    assert room["conforme"] is (not before["conforme"]) and room["overridden"] is True
+    assert "auditor" in room["verdict"]
+    assert room["max_diameter_m"] == before["max_diameter_m"]  # numbers never rewritten
+
+    again = api.get(f"/plans/{plan_id}/sheets/0")
+    assert again.json()["rooms"][index]["conforme"] is (not before["conforme"])
+
+    labels = api.get(f"/plans/{plan_id}/sheets/0/labels")
+    assert labels.status_code == 200
+    rows = [_json.loads(line) for line in labels.text.splitlines() if line.strip()]
+    assert len(rows) == 1 and rows[0]["messages"][1]["role"] == "assistant"
+    assert _json.loads(rows[0]["messages"][1]["content"])["kind"] == "override"
+    stored = tmp_path / plan_id / "sheets" / "0" / "labels.jsonl"
+    assert stored.read_text(encoding="utf-8") == labels.text

@@ -28,14 +28,17 @@ from pathlib import Path
 
 import pymupdf  # type: ignore[import-untyped]
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from conformscope.client import MissingKeyError, make_client, make_verifier_client
 from conformscope.explain import explain_sheet
 from conformscope.corrections import (
+    apply_overrides,
     corrections_from_data,
     corrections_to_data,
+    corrections_to_jsonl,
     dump_corrections,
+    dump_labels,
     load_corrections,
 )
 from conformscope.labels import RoomLabel, RoomReading, read_rooms
@@ -305,6 +308,15 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         _, own, _ = sheet_of(plan_id, page)
         return {"corrections": corrections_to_data(load_corrections(own))}
 
+    @app.get("/plans/{plan_id}/sheets/{page}/labels")
+    def get_labels(plan_id: str, page: int) -> PlainTextResponse:
+        _, own, _ = sheet_of(plan_id, page)
+        return PlainTextResponse(
+            corrections_to_jsonl(load_corrections(own),
+                                 context=f"sheet {page + 1} of a dossier"),
+            media_type="application/jsonl",
+            headers={"Content-Disposition": f'attachment; filename="labels-{page}.jsonl"'})
+
     @app.post("/plans/{plan_id}/sheets/{page}/corrections")
     def post_corrections(plan_id: str, page: int, payload: dict, request: Request):
         original, own, sheet = sheet_of(plan_id, page)
@@ -317,6 +329,7 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         except (ValueError, KeyError, TypeError) as error:
             raise HTTPException(400, f"Bad corrections: {error}") from error
         dump_corrections(own, parsed)
+        dump_labels(own, parsed, context=f"sheet {page + 1} of a dossier")
         return answer(request, lambda progress: replay(original, own, page, parsed, progress))
 
     def replay(original: Path, own: Path, page: int, parsed, progress: Callable[[dict], None]) -> dict:
@@ -339,6 +352,11 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         except Exception as error:
             stored["warnings"] = list(stored.get("warnings", [])) + [
                 f"Corrections saved; the rooms could not be re-measured: {error}"]
+        apply_overrides(stored, parsed)
+        judged = [door["ok"] for door in stored.get("doors", []) if door.get("ok") is not None]
+        stored["doors_ok"] = all(judged) if judged else None
+        stored["walk"] = walk(stored.get("rooms", []), stored.get("doors", []))
+        stored.pop("explain", None)  # the verdicts moved; explain them afresh
         (own / "reading.json").write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
         return stored
 

@@ -83,7 +83,8 @@ type Correction =
   | { kind: "merge"; point: Pt; target_point: Pt }
   | { kind: "wall"; start: Pt; end: Pt }
   | { kind: "remove_fixture"; point: Pt }
-  | { kind: "remove_door"; point: Pt };
+  | { kind: "remove_door"; point: Pt }
+  | { kind: "override"; target: "room" | "door"; index: number; value: boolean };
 
 type Sheet = {
   page: number;
@@ -705,13 +706,28 @@ export function PlanIntake() {
                   </p>
                   {narrow.length > 0 && (
                     <ul className={styles.warnings}>
-                      {narrow.map((door, i) => (
-                        <li key={i}>
-                          {doorSides(door, reading.rooms)}: {door.width_m.toFixed(2)} m, needs{" "}
-                          {door.required_m?.toFixed(2)} m
-                          {door.role === "entrance" && " (read as the entrance)"}
-                        </li>
-                      ))}
+                      {narrow.map((door) => {
+                        const doorIndex = doors.indexOf(door);
+                        return (
+                          <li key={doorIndex}>
+                            {doorSides(door, reading.rooms)}: {door.width_m.toFixed(2)} m, needs{" "}
+                            {door.required_m?.toFixed(2)} m
+                            {door.role === "entrance" && " (read as the entrance)"}{" "}
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                postCorrections([
+                                  ...reading.corrections,
+                                  { kind: "override", target: "door", index: doorIndex, value: true },
+                                ])
+                              }
+                            >
+                              Override: mark wide enough
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </>
@@ -806,6 +822,20 @@ export function PlanIntake() {
                   })}
                   {room.verdict && (
                     <span className={room.conforme ? styles.badgeOk : styles.badgeBad}>{room.verdict}</span>
+                  )}
+                  {room.conforme !== null && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        postCorrections([
+                          ...reading.corrections,
+                          { kind: "override", target: "room", index: i, value: !room.conforme },
+                        ])
+                      }
+                    >
+                      {room.conforme ? "Override: mark not conforme" : "Override: mark conforme"}
+                    </button>
                   )}
                   {room.outline_source !== "auto" && (
                     <span className={styles.badgeHand}>corrected by hand</span>
