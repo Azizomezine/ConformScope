@@ -171,17 +171,35 @@ class RemoveFixture:
         return cls(point=data["point"])
 
 
+@dataclass(frozen=True)
+class RemoveDoor:
+    """A door that is not there (issue #13), found again by a PDF point inside its swing."""
+
+    point: Point
+    kind: ClassVar[str] = "remove_door"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "point", _point(self.point))
+
+    def to_dict(self) -> dict:
+        return {"kind": "remove_door", "point": _point_list(self.point)}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RemoveDoor":
+        return cls(point=data["point"])
+
+
 # Aliases matching the issue's vocabulary.
 MergeCorrection = Merge
 DrawnWallCorrection = DrawnWall
 Wall = DrawnWall
 
-Correction = Merge | DrawnWall | RemoveFixture
+Correction = Merge | DrawnWall | RemoveFixture | RemoveDoor
 
 
 def correction_to_dict(correction: Correction) -> dict:
     """One correction as a JSON-serialisable dict (points as ``[x, y]``)."""
-    if isinstance(correction, (Merge, DrawnWall, RemoveFixture)):
+    if isinstance(correction, (Merge, DrawnWall, RemoveFixture, RemoveDoor)):
         return correction.to_dict()
     raise TypeError(f"Not a correction: {correction!r}")
 
@@ -195,6 +213,8 @@ def correction_from_dict(data: dict) -> Correction:
         return DrawnWall.from_dict(data)
     if kind == "remove_fixture":
         return RemoveFixture.from_dict(data)
+    if kind == "remove_door":
+        return RemoveDoor.from_dict(data)
     raise ValueError(f"Unknown correction kind: {data.get('kind')!r}")
 
 
@@ -551,8 +571,8 @@ def apply_corrections(masks, corrections, px_per_m: float,
             if base is None:
                 raise ValueError("A drawn wall needs a wall mask or room masks for its shape")
             wall = apply_drawn_wall(base, correction, px_per_m, pt_to_px)
-        elif isinstance(correction, RemoveFixture):
-            continue  # fixtures are removed where they are found (rooms.vector_rooms)
+        elif isinstance(correction, (RemoveFixture, RemoveDoor)):
+            continue  # fixtures and doors are removed where they are found (rooms.vector_rooms)
         else:
             raise TypeError(f"Not a correction: {correction!r}")
     return ReplayResult(masks=out, wall_mask=wall,

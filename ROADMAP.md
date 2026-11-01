@@ -42,13 +42,13 @@ Research behind every choice: [`docs/research/meta-hackathon-stack.md`](docs/res
 | 5c | Nov 1 | **Whole-building upload** (#11). One PDF = one dossier, one sheet per page; plans annexes (masse, situation, toiture, combles) listed but never checked; a sheet is checked when opened. | A real 12-page dossier opens sheet by sheet |
 | 5d | Nov 1 | **The check streams its stages** (#12). NDJSON stages drive the progress bar; no more 120 s proxy timeout. | A 200 s picture plan finishes in the browser |
 | 6 | Nov 2 | **Walk the plan.** Rooms + doors as a graph; a wheelchair icon moves through the home and stops where it gets stuck. | The demo moment works end to end |
-| 6b | Nov 2 | **Homes on a sheet.** Split a sheet into logements by its structural walls (pmr-checker `apartments.py`); each home gets its own accessible-WC verdict. | Each home on a sheet has its own verdict |
+| 6b | — | ~~**Homes on a sheet.**~~ *Skipped for now (Nov 1): neither structural walls nor door positions find homes reliably on the sample; the auditor-marks-communs design is ready if it comes back.* Split a sheet into logements by its structural walls (pmr-checker `apartments.py`); each home gets its own accessible-WC verdict. | Each home on a sheet has its own verdict |
 | 7 | Nov 3 | **Explain + verify.** Muse Spark writes the plain-language reason and fix; Muse Spark Open on Baseten double-checks each verdict and flags doubtful ones. | Each failure has a human sentence and a confidence |
 | 8 | Nov 3 | **Auditor corrections.** Click a room or door, override the verdict; every correction saved as a JSONL label (Fireworks fine-tune format). | A correction survives a reload |
 | 9 | Nov 3 | **Report PDF + deploy.** Export the report; deploy to Vercel; README with an eval table. | Live URL |
 | 10 | Nov 4 | **Demo video (3 min) + submission.** X post for the Most Viral track. | Submitted |
 
-Cut order if late: 8 → 6b → #10 → #9 → 5b → 7's verifier. Never cut 4, 5c or 6.
+Cut order if late: 8 → #10 → #9 → 5b → 7's verifier. Never cut 4, 5c or 6.
 
 ## Demo video (3 min)
 
