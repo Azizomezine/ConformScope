@@ -20,3 +20,16 @@ def make_client() -> OpenAI:
     if not key:
         raise MissingKeyError("MODEL_API_KEY is not set. Copy .env.example to .env and fill it in.")
     return OpenAI(base_url=BASE_URL, api_key=key)
+
+
+VERIFIER_BASE_URL = "https://inference.baseten.co/v1"
+VERIFIER_MODEL = "meta-models/muse-spark-open-1026"  # Muse Spark Open, hackathon build
+
+
+def make_verifier_client() -> OpenAI:
+    """Muse Spark Open on Baseten, the verifier's client (issue #16)."""
+    load_dotenv()
+    key = os.environ.get("BASETEN_API_KEY")
+    if not key:
+        raise MissingKeyError("BASETEN_API_KEY is not set. Copy .env.example to .env and fill it in.")
+    return OpenAI(base_url=VERIFIER_BASE_URL, api_key=key)

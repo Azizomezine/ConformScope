@@ -410,3 +410,47 @@ def test_sample_plan_walked_from_a_room_reaches_its_neighbours(make_api):
     assert walked["start"] == {"room": corridor, "door": None}
     assert len(walked["reached"]) > len(body["rooms"][corridor]["doors"]) // 2
     assert walked["route"][0]["event"] == "start"
+
+
+# --- explain + verify (issue #16) ------------------------------------------------------
+
+import json as _json
+
+
+def _sheet_with_a_failure(api, tmp_path):
+    """Open a sheet, then give its stored reading one failing room, as a real check would."""
+    plan_id, _ = _open(api, _png_upload())
+    stored = tmp_path / plan_id / "sheets" / "0" / "reading.json"
+    body = _json.loads(stored.read_text(encoding="utf-8"))
+    body["rooms"] = [{"name": "WC", "room_type": "wc", "conforme": False,
+                      "max_diameter_m": 1.1, "verdict": "Non conforme PMR (max Ø1.10 m)"}]
+    body.pop("explain", None)
+    stored.write_text(_json.dumps(body), encoding="utf-8")
+    return plan_id
+
+
+def test_explaining_a_sheet_not_opened_yet_is_a_409(make_api):
+    api = make_api()
+    plan_id = api.post("/plans", files=_png_upload()).json()["id"]
+
+    assert api.get(f"/plans/{plan_id}/sheets/0/explain").status_code == 409
+
+
+def test_explain_answers_with_templates_and_no_verifier_when_there_are_no_keys(tmp_path):
+    def no_key():
+        raise MissingKeyError("not set")
+
+    api = TestClient(create_app(data_dir=tmp_path, model_client=lambda: _model_client(),
+                                verifier_client=no_key))
+    plan_id = _sheet_with_a_failure(api, tmp_path)
+
+    response = api.get(f"/plans/{plan_id}/sheets/0/explain")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["explained_by"] == "template" and result["verified_by"] is None
+    failure = result["failures"][0]
+    assert failure["kind"] == "turning" and "1.10" in failure["reason"]
+    assert failure["verify"] == {"status": "not_verified"}
+    # Kept with the sheet: a second ask costs no model call and answers the same.
+    assert api.get(f"/plans/{plan_id}/sheets/0/explain").json() == result

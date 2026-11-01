@@ -89,6 +89,19 @@ A WC or bathroom whose **toilet** has a **transfer space**. A home needs at leas
 other toilets are shown but do not decide the home's verdict.
 _Avoid_: PMR WC, adapted toilet
 
+**Explanation**:
+Why a check failed, in plain language, and the smallest change on the plan that would
+make it pass. Written from the measured numbers by Muse Spark, or from a template when
+no model answers. It never changes the verdict: the geometry decides, the explanation
+only speaks.
+_Avoid_: justification, rationale, AI verdict
+
+**Doubtful**:
+A failure the verifier (Muse Spark Open on Baseten) disagrees with, or agrees with too
+weakly to trust. Shown to the auditor as a flag on the explanation; the verdict itself
+still stands until a **correction** changes how the plan was read.
+_Avoid_: uncertain, suspicious, low-confidence verdict
+
 ### Auditing
 
 **Correction**:

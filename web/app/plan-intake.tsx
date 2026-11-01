@@ -120,6 +120,24 @@ type PlanReading = {
   warnings: string[];
 };
 
+type ExplainFailure = {
+  id: string;
+  kind: string;
+  subject: string;
+  reason: string;
+  fix: string;
+  source: "muse-spark" | "template";
+  verify:
+    | { status: "verified"; agree: boolean; confidence: number; note: string; doubtful: boolean }
+    | { status: "not_verified" };
+};
+
+type ExplainResult = {
+  failures: ExplainFailure[];
+  explained_by: string | null;
+  verified_by: string | null;
+};
+
 const DOOR_COLOURS = { ok: "#2e7d32", bad: "#c62828", unchecked: "#868e96" };
 
 function doorColour(door: Door) {
@@ -229,6 +247,8 @@ export function PlanIntake() {
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"none" | "merge" | "wall" | "remove" | "door" | "walk">("none");
   // Walk the plan (issue #14): the route, and how many of its legs the icon has rolled.
+  const [explain, setExplain] = useState<ExplainResult | null>(null);
+  const [explaining, setExplaining] = useState(false);
   const [walk, setWalk] = useState<Walk | null>(null);
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -241,7 +261,28 @@ export function PlanIntake() {
 
   function show(body: PlanReading) {
     setReading(body);
+    setExplain(null);
     play(body.walk ?? null);
+  }
+
+  // Explain + verify (issue #16): a human sentence and a second opinion per failure.
+  async function explainFailures() {
+    if (!reading) return;
+    setExplaining(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/explain`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body) {
+        setError(body?.detail ?? `Explaining the failures failed (${response.status})`);
+        return;
+      }
+      setExplain(body as ExplainResult);
+    } catch {
+      setError("Could not reach the ConformScope server.");
+    } finally {
+      setExplaining(false);
+    }
   }
 
   useEffect(() => {
@@ -676,6 +717,55 @@ export function PlanIntake() {
                 </>
               );
             })()}
+            {!explain ? (
+              <p>
+                <button type="button" onClick={explainFailures} disabled={explaining || busy}>
+                  {explaining ? "Explaining…" : "Explain the failures"}
+                </button>{" "}
+                <span className={styles.muted}>
+                  A plain-language reason and fix for each failure, double-checked by
+                  Muse Spark Open.
+                </span>
+              </p>
+            ) : explain.failures.length === 0 ? (
+              <p className={styles.badgeOk}>Nothing to explain: every check passed.</p>
+            ) : (
+              <>
+                <h3>Why it fails, and how to fix it</h3>
+                <ul className={styles.warnings}>
+                  {explain.failures.map((failure) => (
+                    <li key={failure.id}>
+                      <strong>{failure.subject}</strong>
+                      <br />
+                      {failure.reason}
+                      <br />
+                      <em>Fix: {failure.fix}</em>
+                      <br />
+                      {failure.verify.status === "verified" ? (
+                        failure.verify.doubtful ? (
+                          <span className={styles.badgeBad}>
+                            ⚠ Doubtful — the verifier{" "}
+                            {failure.verify.agree ? "is unsure" : "disagrees"} (
+                            {Math.round(failure.verify.confidence * 100)}%):{" "}
+                            {failure.verify.note}
+                          </span>
+                        ) : (
+                          <span className={styles.badgeOk}>
+                            ✓ Verified by Muse Spark Open (
+                            {Math.round(failure.verify.confidence * 100)}%)
+                          </span>
+                        )
+                      ) : (
+                        <span className={styles.muted}>Not verified (no verifier key).</span>
+                      )}{" "}
+                      <span className={styles.muted}>
+                        {failure.source === "template" ? "Written from the measurements." : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             {reading.warnings.length > 0 && (
               <ul className={styles.warnings}>
                 {reading.warnings.map((warning, i) => (

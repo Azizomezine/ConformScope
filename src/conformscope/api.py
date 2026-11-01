@@ -30,7 +30,8 @@ import pymupdf  # type: ignore[import-untyped]
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from conformscope.client import MissingKeyError, make_client
+from conformscope.client import MissingKeyError, make_client, make_verifier_client
+from conformscope.explain import explain_sheet
 from conformscope.corrections import (
     corrections_from_data,
     corrections_to_data,
@@ -130,6 +131,7 @@ def measured_body(measured) -> dict:
 
 
 def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = make_client,
+               verifier_client: Callable = make_verifier_client,
                heartbeat_s: float = HEARTBEAT_S) -> FastAPI:
     data_dir = Path(data_dir)
     app = FastAPI(title="ConformScope")
@@ -248,6 +250,32 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         stored.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
         return body
 
+    @app.get("/plans/{plan_id}/sheets/{page}/explain")
+    def get_explain(plan_id: str, page: int) -> dict:
+        """Explain and verify the stored sheet's failures (issue #16). Never measures
+        again; with no key the explanations are templates and the verdicts unverified.
+        The result is kept with the sheet, so a second opening costs no model call."""
+        _, own, sheet = sheet_of(plan_id, page)
+        stored = own / "reading.json"
+        if not stored.exists():
+            raise HTTPException(409, "Open the sheet before explaining it")
+        body = json.loads(stored.read_text(encoding="utf-8"))
+        if "explain" in body:
+            return body["explain"]
+        if sheet["annexe"]:
+            result: dict = {"failures": [], "explained_by": None, "verified_by": None}
+        else:
+            def optional(factory):
+                try:
+                    return factory()
+                except Exception:
+                    return None
+
+            result = explain_sheet(optional(model_client), optional(verifier_client), body)
+        body["explain"] = result
+        stored.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        return result
+
     @app.get("/plans/{plan_id}/sheets/{page}/walk")
     def get_walk(plan_id: str, page: int, request: Request) -> dict:
         """Walk the stored sheet again, from a room the auditor clicked (issue #14). Never
@@ -304,6 +332,7 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
             measured = measure_rooms(model_client(), original, plan, reading,
                                      corrections=parsed, page=page, progress=progress)
             stored.update(measured_body(measured))
+            stored.pop("explain", None)  # the failures moved; explain them afresh
             stored["pt_per_plan_px"] = pt_per_plan_px(original, plan, page)
         except MissingKeyError as error:
             raise HTTPException(503, str(error)) from error
