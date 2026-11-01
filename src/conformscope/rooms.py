@@ -17,6 +17,7 @@ import math
 import re
 import statistics
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,6 +27,7 @@ import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
 from conformscope import extract, geometry
+from conformscope.doors import door_arcs, door_body, doors_ok, find_doors, remove_doors
 from conformscope.fixtures import (
     OVERLAP_PX, FixtureMask, MeasuredFixture, assign_rooms, remove_fixtures, split_fixtures)
 from conformscope.labels import (
@@ -73,6 +75,7 @@ class MeasuredRoom:
     warnings: list[str] = field(default_factory=list)
     outline_source: str = "auto"  # "auto" | "merged" | "wall" (issue #6)
     fixtures: list[int] = field(default_factory=list)  # indices into RoomsResult.fixtures
+    doors: list[int] = field(default_factory=list)     # indices into RoomsResult.doors
 
 
 @dataclass
@@ -84,6 +87,8 @@ class RoomsResult:
     warnings: list[str]
     fixtures: list[MeasuredFixture] = field(default_factory=list)
     accessible_wc: bool | None = None    # a toilet with a transfer space; None with no toilet
+    doors: list[dict] = field(default_factory=list)  # issue #13, as doors.door_body
+    doors_ok: bool | None = None         # every judged door wide enough; None with none judged
 
 
 def scale_pt_per_m(text: str | None) -> float | None:
@@ -195,20 +200,27 @@ def _disk(radius_px: int) -> np.ndarray:
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius_px + 1, 2 * radius_px + 1))
 
 
-def measure_rooms(client, path: str | Path, plan: Plan, reading: RoomReading, corrections=None) -> RoomsResult:
+def _no_progress(event: dict) -> None:
+    pass
+
+
+def measure_rooms(client, path: str | Path, plan: Plan, reading: RoomReading, corrections=None,
+                  page: int = 0, progress: Callable[[dict], None] = _no_progress) -> RoomsResult:
+    """`progress` is told each stage as it starts (issue #12), so a client can show it."""
     if Path(path).suffix.lower() == ".pdf":
+        progress({"stage": "measuring"})
         with pymupdf.open(path) as doc:
-            result = vector_rooms(client, doc, plan, reading, corrections or [])
+            result = vector_rooms(client, doc, plan, reading, corrections or [], page, progress)
         if result is not None:
             return result
-    return picture_rooms(client, plan, reading, corrections or [])
+    return picture_rooms(client, plan, reading, corrections or [], progress)
 
 
 # --- vector PDFs ------------------------------------------------------------------------
 
 
-def _calibrate(doc, reading: RoomReading):
-    ex = extract.extract_plan(doc)
+def _calibrate(doc, reading: RoomReading, page: int = 0):
+    ex = extract.extract_plan(doc, page_index=page)
     stated = scale_pt_per_m(reading.scale)
     if ex.calibration_provenance == "measured":
         warnings = []
@@ -218,7 +230,7 @@ def _calibrate(doc, reading: RoomReading):
                 f"{reading.scale} ({stated:.2f} pt/m); using the dimension lines")
         return ex, "measured", warnings
     if stated:
-        return extract.extract_plan(doc, pt_per_m_override=stated), "scale", []
+        return extract.extract_plan(doc, page_index=page, pt_per_m_override=stated), "scale", []
     return ex, "assumed", [f"No dimension line or written scale was read; {ex.calibration_note}"]
 
 
@@ -272,9 +284,10 @@ def _numbered_plan(plan: Plan, rooms: list[tuple[int, list, tuple[float, float]]
     return buffer.getvalue()
 
 
-def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None) -> RoomsResult | None:
-    """Rooms cut by the drawn walls, or None when the PDF has too few to be a vector plan."""
-    ex, scale_source, warnings = _calibrate(doc, reading)
+def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None,
+                 page: int = 0, progress: Callable[[dict], None] = _no_progress) -> RoomsResult | None:
+    """Rooms cut by the drawn walls, or None when the page has too few to be a vector plan."""
+    ex, scale_source, warnings = _calibrate(doc, reading, page)
     if len(ex.wall_paths) + len(ex.wall_line_paths) < MIN_WALL_PATHS:
         return None
     rect = ex.page_rect
@@ -426,6 +439,7 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
     to_type = [i for i, shape in enumerate(shapes) if shape[2] is None]
     muse_types: dict[int, str] = {}
     if to_type:
+        progress({"stage": "typing"})
         png = _numbered_plan(plan, [(n, shapes[i][4], shapes[i][8])
                                     for n, i in enumerate(to_type, start=1)])
         try:
@@ -463,22 +477,39 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
                                         space=space and space_body(space, px_per_m, to_plan)))
     for i in wcs_without_toilet([room.room_type for room in rooms], fixtures):
         rooms[i].warnings.append("No toilet found in this WC — the transfer space could not be checked")
+
+    # Issue #13: doors, judged by their width and placed between the rooms they join.
+    index = np.full(wall.shape, -1, np.int32)
+    for i, mask in enumerate(room_masks):
+        index[mask] = i
+    placard_mask = np.zeros_like(wall)
+    for fixture in fixtures:
+        if fixture.kind == "placard":
+            placard_mask |= fixture.full_mask(wall.shape)
+    doors = find_doors(door_arcs(ex.door_arc_paths, DPI), index, wall | barrier, placard_mask, px_per_m)
+    doors = remove_doors(doors, _removal_points(corrections, DPI / 72, "remove_door"))
+    for i, door in enumerate(doors):
+        for room in set(door.rooms) - {None}:
+            rooms[room].doors.append(i)
     return RoomsResult("vector", scale_source, px_per_m * to_plan, rooms, warnings, measured,
-                       accessible_wc(spaces))
+                       accessible_wc(spaces), [door_body(door, to_plan) for door in doors],
+                       doors_ok(doors))
 
 
 # --- pictures ---------------------------------------------------------------------------
 
 
-def _removal_points(corrections, scale: float = 1.0) -> list[tuple[int, int]]:
-    """Where the auditor removed a fixture, as grid pixels (issue #9)."""
+def _removal_points(corrections, scale: float = 1.0, kind: str = "remove_fixture") -> list[tuple[int, int]]:
+    """Where the auditor removed a fixture (issue #9) or a door (#13), as grid pixels."""
     return [(round(float(c["point"][0]) * scale), round(float(c["point"][1]) * scale))
             for c in (corr if isinstance(corr, dict) else corr.to_dict() for corr in corrections or [])
-            if c.get("kind") == "remove_fixture"]
+            if c.get("kind") == kind]
 
 
-def _picture_fixtures(client, plan: Plan, warnings: list[str]) -> list[FixtureMask]:
+def _picture_fixtures(client, plan: Plan, warnings: list[str],
+                      progress: Callable[[dict], None] = _no_progress) -> list[FixtureMask]:
     """Fixtures on a picture: Muse Spark boxes them, SAM 3.1 outlines each box."""
+    progress({"stage": "fixtures"})
     try:
         _, boxes = read_fixtures(client, plan)
     except Exception as error:
@@ -487,8 +518,10 @@ def _picture_fixtures(client, plan: Plan, warnings: list[str]) -> list[FixtureMa
     if not boxes:
         return []
     by_id = {}
+    batches = math.ceil(len(boxes) / SAM_MAX_OBJECTS)
     for start in range(0, len(boxes), SAM_MAX_OBJECTS):
         batch = boxes[start:start + SAM_MAX_OBJECTS]
+        progress({"stage": "outlining", "batch": start // SAM_MAX_OBJECTS + 1, "of": batches})
         try:
             _, masks = segment(client, plan, box_prompt(batch, plan.width, plan.height))
         except Exception as error:
@@ -506,11 +539,14 @@ def _picture_fixtures(client, plan: Plan, warnings: list[str]) -> list[FixtureMa
     return fixtures
 
 
-def picture_rooms(client, plan: Plan, reading: RoomReading, corrections=None) -> RoomsResult:
+def picture_rooms(client, plan: Plan, reading: RoomReading, corrections=None,
+                  progress: Callable[[dict], None] = _no_progress) -> RoomsResult:
     """Rooms from SAM 3.1 masks, one per Muse Spark label point."""
-    warnings = ["This plan is a picture with no drawn walls, so its rooms come from SAM 3.1"]
+    warnings = ["This plan is a picture with no drawn walls, so its rooms come from SAM 3.1",
+                "Doors are read from vector PDFs only; this picture's doors are not checked"]
     if not reading.rooms:
         return RoomsResult("picture", None, None, [], warnings + ["No room labels were read"])
+    progress({"stage": "segmenting"})
     try:
         _, masks = segment(client, plan, point_prompt(reading.rooms, plan.width, plan.height))
     except Exception as error:
@@ -520,6 +556,7 @@ def picture_rooms(client, plan: Plan, reading: RoomReading, corrections=None) ->
     found = [(label, by_id.get(str(i))) for i, label in enumerate(reading.rooms)]
     found = [(label, m) for label, m in found if m is not None and m.bits.any()]
 
+    progress({"stage": "scale"})
     try:
         _, dimension = read_dimension(client, plan)
     except Exception:
@@ -537,7 +574,7 @@ def picture_rooms(client, plan: Plan, reading: RoomReading, corrections=None) ->
         placed[m.top:m.top + m.bits.shape[0], m.left:m.left + m.bits.shape[1]] = m.bits
         room_masks.append(placed)
     room_types = [type_from_name(label.name) or label.room_type for label, _ in found]
-    fixtures = _picture_fixtures(client, plan, warnings) if found else []
+    fixtures = _picture_fixtures(client, plan, warnings, progress) if found else []
     fixtures = remove_fixtures(fixtures, _removal_points(corrections))
     assign_rooms(fixtures, room_masks, room_types)
     taken = np.zeros(shape, bool)

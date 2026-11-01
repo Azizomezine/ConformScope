@@ -23,13 +23,13 @@ class Plan:
         return "data:image/png;base64," + base64.b64encode(self.png).decode("ascii")
 
 
-def load_plan(path: str | Path, dpi: int = 150, max_side: int = 2000) -> Plan:
-    """Render the first page of a PDF, or read an image, as a PNG no longer than max_side."""
+def load_plan(path: str | Path, dpi: int = 150, max_side: int = 2000, page: int = 0) -> Plan:
+    """Render one page of a PDF, or read an image, as a PNG no longer than max_side."""
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         with pymupdf.open(path) as doc:
-            pix = doc[0].get_pixmap(dpi=dpi)
+            pix = doc[page].get_pixmap(dpi=dpi)
             image = Image.open(io.BytesIO(pix.tobytes("png")))
     elif suffix in IMAGE_SUFFIXES:
         image = Image.open(path)

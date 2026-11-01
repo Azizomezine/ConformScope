@@ -1,0 +1,107 @@
+// Illustrative demo apartment, built in code. Not a real audited home.
+// Coordinates are metres on a 10 x 7 m plan. Same shape the real checker
+// returns: polygon, area, turning circle and PMR verdict per room.
+
+export type DemoRoom = {
+  name: string;
+  roomType: string;
+  color: string;
+  polygon: [number, number][];
+  areaM2: number;
+  circle: { center: [number, number]; diameterM: number; conforme: boolean };
+  verdict: string;
+};
+
+export const PLAN_W = 10;
+export const PLAN_H = 7;
+export const WALL_H = 1.4;
+export const TURNING_DIAMETER_M = 1.5;
+
+export const DEMO_ROOMS: DemoRoom[] = [
+  {
+    name: "Séjour", roomType: "living", color: "#f4a261",
+    polygon: [[0, 0], [5.6, 0], [5.6, 4.2], [0, 4.2]],
+    areaM2: 23.5,
+    circle: { center: [2.8, 2.1], diameterM: 1.5, conforme: true },
+    verdict: "Conforme PMR",
+  },
+  {
+    name: "Cuisine", roomType: "kitchen", color: "#e9c46a",
+    polygon: [[5.6, 0], [10, 0], [10, 2.6], [5.6, 2.6]],
+    areaM2: 11.4,
+    circle: { center: [7.8, 1.3], diameterM: 1.5, conforme: true },
+    verdict: "Conforme PMR",
+  },
+  {
+    name: "Chambre", roomType: "bedroom", color: "#8ab17d",
+    polygon: [[0, 4.2], [4.2, 4.2], [4.2, 7], [0, 7]],
+    areaM2: 11.8,
+    circle: { center: [2.1, 5.6], diameterM: 1.5, conforme: true },
+    verdict: "Conforme PMR",
+  },
+  {
+    name: "Salle de bain", roomType: "bathroom", color: "#4ea8de",
+    polygon: [[4.2, 4.2], [7.2, 4.2], [7.2, 7], [4.2, 7]],
+    areaM2: 8.4,
+    circle: { center: [5.7, 5.6], diameterM: 1.5, conforme: true },
+    verdict: "Conforme PMR",
+  },
+  {
+    name: "WC", roomType: "wc", color: "#2a6f97",
+    polygon: [[7.2, 4.2], [8.6, 4.2], [8.6, 7], [7.2, 7]],
+    areaM2: 3.9,
+    circle: { center: [7.9, 5.6], diameterM: 1.4, conforme: false },
+    verdict: "Non conforme PMR (max Ø1.40 m)",
+  },
+  {
+    name: "Couloir", roomType: "corridor", color: "#b5a1d9",
+    polygon: [[5.6, 2.6], [10, 2.6], [10, 7], [8.6, 7], [8.6, 4.2], [5.6, 4.2]],
+    areaM2: 11.0,
+    circle: { center: [7.8, 3.4], diameterM: 1.5, conforme: true },
+    verdict: "Conforme PMR",
+  },
+];
+
+export const DEMO_STEPS = [
+  {
+    eyebrow: "Lecture", title: "On lit le plan",
+    text: "Muse Spark lit les étiquettes du plan. Les cotes passent en mètres, le plan reste à plat.",
+    tags: ["Plan 2D", "Étiquettes", "Mètres"],
+  },
+  {
+    eyebrow: "Pièces", title: "Chaque pièce est découpée",
+    text: "SAM 3.1 découpe les pièces sur l'image. Chacune reçoit son type et sa surface.",
+    tags: ["Segmentation", "Type de pièce", "Surface m²"],
+  },
+  {
+    eyebrow: "Volume", title: "Les murs montent",
+    text: "Chaque pièce devient un volume. On voit la maison, pas seulement le dessin.",
+    tags: ["3D temps réel", "Murs"],
+  },
+  {
+    eyebrow: "Cercle", title: "Un cercle de Ø1,50 m doit tourner",
+    text: "La géométrie cherche le plus grand cercle libre de chaque pièce. Aucun verdict ne vient du modèle.",
+    tags: ["Ø1,50 m", "Géométrie"],
+  },
+  {
+    eyebrow: "Verdict", title: "Le WC ne passe pas",
+    text: "Vert : un fauteuil peut y faire demi-tour. Rouge : le WC plafonne à Ø1,40 m. On le voit avant de signer.",
+    tags: ["Conforme", "Non conforme"],
+  },
+] as const;
+
+// Share of the scroll track the hero holds before the first chapter starts.
+export const STORY_INTRO = 0.1;
+
+/** Scroll progress [start, end) of chapter i on the hero track. */
+export function chapterRange(i: number): [number, number] {
+  const span = (1 - STORY_INTRO) / DEMO_STEPS.length;
+  return [STORY_INTRO + i * span, STORY_INTRO + (i + 1) * span];
+}
+
+/** Chapter shown at scroll progress p, or -1 while the hero is on screen. */
+export function chapterAt(p: number) {
+  if (p < STORY_INTRO) return -1;
+  const span = (1 - STORY_INTRO) / DEMO_STEPS.length;
+  return Math.min(DEMO_STEPS.length - 1, Math.floor((p - STORY_INTRO) / span));
+}

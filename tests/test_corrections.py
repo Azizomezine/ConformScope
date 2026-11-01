@@ -241,3 +241,46 @@ def test_a_removed_fixture_round_trips_through_json():
 
     assert corrections_from_json(stored) == [RemoveFixture(point=(12.5, 40.0))]
     assert '"kind": "remove_fixture"' in stored
+
+
+def test_a_removed_door_round_trips_through_json():
+    from conformscope.corrections import RemoveDoor, corrections_from_json, corrections_to_json
+
+    stored = corrections_to_json([RemoveDoor(point=(12.5, 40))])
+
+    assert corrections_from_json(stored) == [RemoveDoor(point=(12.5, 40.0))]
+    assert '"kind": "remove_door"' in stored
+
+
+# --- verdict overrides + JSONL labels (issue #17) --------------------------------------
+
+import json as _json
+
+from conformscope.corrections import (OverrideVerdict, correction_from_dict, correction_to_dict, corrections_from_data, corrections_to_jsonl)
+
+
+def test_an_override_correction_round_trips():
+    correction = OverrideVerdict(target="door", index=2, value=True)
+
+    assert correction_from_dict(correction_to_dict(correction)) == correction
+    assert corrections_from_data(corrections_to_data([correction])) == [correction]
+
+
+def test_an_override_for_something_else_is_refused():
+    import pytest
+
+    with pytest.raises(ValueError):
+        OverrideVerdict(target="fixture", index=0, value=True)
+
+
+def test_jsonl_labels_are_one_messages_object_per_correction():
+    corrections = [Merge(point=(1, 2), target_point=(3, 4)),
+                   OverrideVerdict(target="room", index=0, value=True)]
+
+    lines = corrections_to_jsonl(corrections, context="sheet 1").splitlines()
+
+    assert len(lines) == 2
+    for line, correction in zip(lines, corrections_to_data(corrections)):
+        row = _json.loads(line)
+        assert [m["role"] for m in row["messages"]] == ["user", "assistant"]
+        assert _json.loads(row["messages"][1]["content"]) == correction

@@ -240,3 +240,42 @@ def test_the_text_layer_beats_an_area_muse_spark_misread():
     result = measure_rooms(client, SAMPLE, plan, reading)
 
     assert [r.written_area_m2 for r in result.rooms if r.type_source == "text"] == WRITTEN
+
+
+def test_a_vector_sheet_is_measured_from_its_own_page(tmp_path, monkeypatch):
+    import pymupdf
+    from conformscope import extract
+    from conformscope.labels import RoomReading
+    from conformscope.plan import load_plan
+
+    path = tmp_path / "dossier.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.new_page()
+    doc.save(path)
+    pages = []
+    real = extract.extract_plan
+
+    def spy(doc, page_index=0, **kwargs):
+        pages.append(page_index)
+        return real(doc, page_index=page_index, **kwargs)
+
+    monkeypatch.setattr(extract, "extract_plan", spy)
+    client, _ = _fake_client(json.dumps({"rooms": []}))
+
+    measure_rooms(client, path, load_plan(path, page=1), RoomReading(None, []), page=1)
+
+    assert pages and set(pages) == {1}
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="private sample plan not present")
+def test_a_vector_plan_reports_measuring_then_typing():
+    plan = load_plan(SAMPLE)
+    reading = parse_rooms(RECORDED, plan.width, plan.height)
+    client, _ = _fake_client(json.dumps({"rooms": []}))
+    events = []
+
+    measure_rooms(client, SAMPLE, plan, reading, progress=events.append)
+
+    assert events[0] == {"stage": "measuring"}
+    assert set(e["stage"] for e in events) <= {"measuring", "typing"}

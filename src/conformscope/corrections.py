@@ -171,17 +171,61 @@ class RemoveFixture:
         return cls(point=data["point"])
 
 
+@dataclass(frozen=True)
+class RemoveDoor:
+    """A door that is not there (issue #13), found again by a PDF point inside its swing."""
+
+    point: Point
+    kind: ClassVar[str] = "remove_door"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "point", _point(self.point))
+
+    def to_dict(self) -> dict:
+        return {"kind": "remove_door", "point": _point_list(self.point)}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RemoveDoor":
+        return cls(point=data["point"])
+
+
+@dataclass(frozen=True)
+class OverrideVerdict:
+    """A verdict the auditor sets by hand (issue #17): the room or door at
+    ``index`` in the measured list is judged ``value``, whatever the geometry
+    said. The measured numbers stay; only the verdict is replaced."""
+
+    target: str  # "room" | "door"
+    index: int
+    value: bool
+    kind: ClassVar[str] = "override"
+
+    def __post_init__(self) -> None:
+        if self.target not in ("room", "door"):
+            raise ValueError(f"Override target must be a room or a door: {self.target!r}")
+        object.__setattr__(self, "index", int(self.index))
+        object.__setattr__(self, "value", bool(self.value))
+
+    def to_dict(self) -> dict:
+        return {"kind": "override", "target": self.target,
+                "index": self.index, "value": self.value}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "OverrideVerdict":
+        return cls(target=data["target"], index=data["index"], value=data["value"])
+
+
 # Aliases matching the issue's vocabulary.
 MergeCorrection = Merge
 DrawnWallCorrection = DrawnWall
 Wall = DrawnWall
 
-Correction = Merge | DrawnWall | RemoveFixture
+Correction = Merge | DrawnWall | RemoveFixture | RemoveDoor | OverrideVerdict
 
 
 def correction_to_dict(correction: Correction) -> dict:
     """One correction as a JSON-serialisable dict (points as ``[x, y]``)."""
-    if isinstance(correction, (Merge, DrawnWall, RemoveFixture)):
+    if isinstance(correction, (Merge, DrawnWall, RemoveFixture, RemoveDoor, OverrideVerdict)):
         return correction.to_dict()
     raise TypeError(f"Not a correction: {correction!r}")
 
@@ -195,6 +239,10 @@ def correction_from_dict(data: dict) -> Correction:
         return DrawnWall.from_dict(data)
     if kind == "remove_fixture":
         return RemoveFixture.from_dict(data)
+    if kind == "remove_door":
+        return RemoveDoor.from_dict(data)
+    if kind == "override":
+        return OverrideVerdict.from_dict(data)
     raise ValueError(f"Unknown correction kind: {data.get('kind')!r}")
 
 
@@ -229,6 +277,61 @@ def dump_corrections(plan_dir: str | Path, corrections) -> Path:
     path = corrections_path(plan_dir)
     path.write_text(corrections_to_json(corrections), encoding="utf-8")
     return path
+
+
+def labels_path(plan_dir: str | Path) -> Path:
+    """Where a plan's fine-tune labels live alongside its ``corrections.json``."""
+    return Path(plan_dir) / "labels.jsonl"
+
+
+def corrections_to_jsonl(corrections, context: str = "a plan") -> str:
+    """The corrections as Fireworks fine-tune labels (issue #17): one JSON line
+    per correction, each a ``{"messages": [...]}`` conversation whose assistant
+    turn is the correction itself. Lines with ``"weight": 0`` would be excluded
+    from the loss; none are emitted."""
+    lines = []
+    for correction in corrections:
+        data = correction_to_dict(correction)
+        lines.append(json.dumps({
+            "messages": [
+                {"role": "user",
+                 "content": f"Auditor correction on {context}: {data['kind']}"},
+                {"role": "assistant", "content": json.dumps(data, ensure_ascii=False)},
+            ]}, ensure_ascii=False))
+    return "".join(line + "\n" for line in lines)
+
+
+def dump_labels(plan_dir: str | Path, corrections, context: str = "a plan") -> Path:
+    """Write a plan's JSONL labels next to its corrections; returns the path."""
+    path = labels_path(plan_dir)
+    path.write_text(corrections_to_jsonl(corrections, context), encoding="utf-8")
+    return path
+
+
+def apply_overrides(body: dict, corrections) -> dict:
+    """Set the auditor's verdicts on a measured sheet body, in place (issue #17).
+
+    Only the verdict fields move; the measured numbers stay, and everything
+    derived from the verdicts (``doors_ok``, the walk) is recomputed by the
+    caller that knows how. Unknown or stale indices are skipped, never a crash.
+    """
+    for correction in corrections:
+        if not isinstance(correction, OverrideVerdict):
+            continue
+        items = body.get("rooms" if correction.target == "room" else "doors", [])
+        if not 0 <= correction.index < len(items):
+            continue
+        item = items[correction.index]
+        item["overridden"] = True
+        if correction.target == "room":
+            item["conforme"] = correction.value
+            item["verdict"] = ("Conforme PMR — set by the auditor" if correction.value
+                               else "Non conforme PMR — set by the auditor")
+        else:
+            item["ok"] = correction.value
+            item["verdict"] = ("Wide enough — set by the auditor" if correction.value
+                               else "Too narrow — set by the auditor")
+    return body
 
 
 def load_corrections(plan_dir: str | Path) -> list[Correction]:
@@ -551,8 +654,8 @@ def apply_corrections(masks, corrections, px_per_m: float,
             if base is None:
                 raise ValueError("A drawn wall needs a wall mask or room masks for its shape")
             wall = apply_drawn_wall(base, correction, px_per_m, pt_to_px)
-        elif isinstance(correction, RemoveFixture):
-            continue  # fixtures are removed where they are found (rooms.vector_rooms)
+        elif isinstance(correction, (RemoveFixture, RemoveDoor)):
+            continue  # fixtures and doors are removed where they are found (rooms.vector_rooms)
         else:
             raise TypeError(f"Not a correction: {correction!r}")
     return ReplayResult(masks=out, wall_mask=wall,

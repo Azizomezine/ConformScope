@@ -48,3 +48,15 @@ def test_unknown_file_type_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="docx"):
         load_plan(path)
+
+
+def test_pdf_plan_renders_the_page_asked_for(tmp_path):
+    path = tmp_path / "dossier.pdf"
+    doc = pymupdf.open()
+    doc.new_page(width=720, height=360)
+    doc.new_page(width=360, height=720)
+    doc.save(path)
+
+    plan = load_plan(path, dpi=100, page=1)
+
+    assert (plan.width, plan.height) == (500, 1000)

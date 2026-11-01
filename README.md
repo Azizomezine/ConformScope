@@ -76,7 +76,7 @@ verdict list on the right.
 ## Test suite
 
 ```powershell
-uv run pytest        # 98 tests
+uv run pytest        # 218 tests
 ```
 
 - Unit tests use fixed synthetic inputs — no network, no model calls, no private
@@ -91,11 +91,15 @@ uv run pytest        # 98 tests
 
 | Endpoint | What it does |
 | --- | --- |
-| `POST /plans` | Upload a plan; returns labels, measured rooms, verdicts |
-| `GET /plans/{id}` | The stored reading, with corrections applied |
-| `GET /plans/{id}/image` | The rendered plan page |
-| `GET /plans/{id}/corrections` | Stored corrections for the plan |
-| `POST /plans/{id}/corrections` | Replace corrections; re-measures and replays them |
+| `POST /plans` | Upload a dossier (one PDF, one sheet per page); lists its sheets |
+| `GET /plans/{id}` | The dossier and its sheets |
+| `GET /plans/{id}/sheets/{page}` | Check a sheet when opened (stages stream as NDJSON), then keep it |
+| `GET /plans/{id}/sheets/{page}/image` | The rendered sheet |
+| `GET /plans/{id}/sheets/{page}/walk` | Walk the stored sheet again, from any room |
+| `GET /plans/{id}/sheets/{page}/explain` | Reason + fix per failure (Muse Spark), verified by Muse Spark Open on Baseten |
+| `GET /plans/{id}/sheets/{page}/labels` | The sheet's corrections as JSONL fine-tune labels (Fireworks format) |
+| `GET /plans/{id}/sheets/{page}/corrections` | Stored corrections for the sheet |
+| `POST /plans/{id}/sheets/{page}/corrections` | Replace corrections; re-measures and replays them |
 
 ## Known limits
 
