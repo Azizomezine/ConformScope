@@ -269,3 +269,18 @@ def test_more_boxes_than_sam_takes_at_once_are_sent_in_batches():
     assert calls.count("sam-box") == 2
     sources = [f.outline_source for f in result.fixtures]
     assert sources[0] == "sam" and sources[16] == "sam" and sources.count("muse") == 18
+
+
+def test_a_picture_reports_its_stages_with_each_sam_batch():
+    from conformscope.rooms import picture_rooms
+    from test_segment import SAMPLE as RECORDED_MASK
+
+    plan, reading = _picture()
+    client, _ = _picture_client([TOILET_BOX] * 20, sam_output=RECORDED_MASK)
+    events = []
+
+    picture_rooms(client, plan, reading, progress=events.append)
+
+    assert events == [{"stage": "segmenting"}, {"stage": "scale"}, {"stage": "fixtures"},
+                      {"stage": "outlining", "batch": 1, "of": 2},
+                      {"stage": "outlining", "batch": 2, "of": 2}]
