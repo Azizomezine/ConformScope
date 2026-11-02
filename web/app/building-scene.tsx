@@ -3,6 +3,7 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 import { DEMO_ROOMS, PLAN_H, PLAN_W, WALL_H, chapterAt, chapterRange } from "./demo-plan";
+import { stepSpring } from "../lib/spring";
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const smooth = (v: number) => { const t = clamp01(v); return t * t * (3 - 2 * t); };
@@ -227,6 +228,8 @@ export function BuildingScene({
 
     let raf = 0;
     let current = 0;
+    let currentVel = 0;
+    let lastNow: number | null = null;
     const topPos = new THREE.Vector3(0, 13, 7);
     const endPos = new THREE.Vector3(8, 10.5, 11);
     const target = new THREE.Vector3(0, 0.4, 0);
@@ -258,15 +261,21 @@ export function BuildingScene({
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const goal = clamp01(progressRef.current);
+      const prevNow = lastNow; lastNow = now;
       if (reducedMotion) {
         // No scroll-linked motion: jump to the end state of the current chapter.
         const ch = chapterAt(goal);
-        current = ch < 0 ? 0 : chapterRange(ch)[1];
+        current = ch < 0 ? 0 : chapterRange(ch)[1]; currentVel = 0;
       } else if (Math.abs(goal - current) > 0.25) {
-        // A rail click or jump scroll: land the model on the named chapter at once.
+        currentVel = 0;
+        // A rail click or jump scroll: land the model on the named chapter at once (vel. reset below).
         current = goal;
       } else {
-        current += (goal - current) * 0.08;
+        // Critically damped spring (response 0.45 s): starts from the current
+        // value, carries velocity through scroll reversals, frame-rate independent.
+        const dt = Math.min(0.05, Math.max(0.001, prevNow === null ? 1 / 60 : (now - prevNow) / 1000));
+        const stepped = stepSpring({ x: current, v: currentVel }, goal, dt, 1, 0.45);
+        current = stepped.x; currentVel = stepped.v;
         if (Math.abs(goal - current) < 0.0005) current = goal;
       }
 

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo_Narrow, Geist, Geist_Mono, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,6 +12,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/* The check screen's faces (from pmr-checker): ISO 3098 — the narrow, spaced lettering
+   on an architect's drawing — and monospaced dimensions, since every number on a plan
+   is one. */
+const letters = Archivo_Narrow({
+  subsets: ["latin"], weight: ["400", "600", "700"], variable: "--font-letters",
+});
+const body = IBM_Plex_Sans({
+  subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-body",
+});
+const dim = IBM_Plex_Mono({
+  subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-dim",
+});
+
 export const metadata: Metadata = {
   title: "ConformScope",
   description: "Can a wheelchair live in this home?",
@@ -19,7 +32,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en"
+          className={`${geistSans.variable} ${geistMono.variable} ${letters.variable} ${body.variable} ${dim.variable}`}>
       <body>{children}</body>
     </html>
   );

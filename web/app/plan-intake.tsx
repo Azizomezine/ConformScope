@@ -1,255 +1,86 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type MouseEvent } from "react";
-import styles from "./page.module.css";
-
-type Room = {
-  name: string;
-  room_type: string;
-  type_source: "text" | "fixture" | "muse" | "none";
-  area_m2: number | null;
-  written_area_m2: number | null;
-  polygon_px: [number, number][];
-  circle_m: number | null;
-  circle_px: [number, number] | null;
-  conforme: boolean | null;
-  max_diameter_m: number | null;
-  verdict: string | null;
-  outline_source: string;
-  fixtures?: number[];
-  doors?: number[];
-  warnings: string[];
-};
-
-type Door = {
-  rooms: [number | null, number | null];
-  role: "interior" | "entrance" | "communs";
-  width_m: number;
-  measured_m: number;
-  required_m: number | null;
-  ok: boolean | null;
-  verdict: string;
-  doorway_px: [number, number][];
-  swing_px: [number, number];
-};
-
-type Fixture = {
-  kind: "placard" | "appliance" | "washbasin" | "toilet";
-  room: number | null;
-  polygon_px: [number, number][];
-  outline_source: string;
-  space: Space | null;
-};
-
-type Space = {
-  kind: "transfer" | "washbasin";
-  fits: boolean;
-  verdict: string;
-  to_confirm: boolean;
-  polygon_px: [number, number][];
-};
-
-type Pt = [number, number];
-
-type WalkStep = {
-  point_px: Pt;
-  room: number | null;
-  door: number | null;
-  event: "start" | "enter" | "through" | "back" | "blocked_door" | "cannot_turn";
-};
-
-type Walk = {
-  start: { room: number | null; door: number | null } | null;
-  reached: number[];
-  unreachable: { room: number; blocked_by: number | null }[];
-  stops: { kind: "door" | "turn"; door: number | null; room: number | null; reason: string }[];
-  route: WalkStep[];
-  verdict: string;
-};
+import Link from "next/link";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  Accessibility, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleDashed, Combine,
+  DoorClosed, FileText, FileUp, PackageX, PenLine, RotateCcw, Ruler,
+} from "lucide-react";
+import { Key, Mark } from "@/components/Cartouche";
+import PlanViewer, { type WalkFrame } from "@/components/PlanViewer";
+import { Group, IconButton } from "@/components/PlanToolbar";
+import ReportPane from "@/components/review/ReportPane";
+import RoomsPane from "@/components/review/RoomsPane";
+import Workspace from "@/components/review/Workspace";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  NDJSON, SCALE_TEXT, SOURCE_TEXT, fixtureSummary, insidePolygon, sheetSize, streamed, uploadDossier,
+  type Correction, type Dossier, type ExplainResult, type PlanReading, type Pt, type Sheet,
+  type Stage, type Walk,
+} from "@/lib/plan";
+import { bandOf, crept, labelOf, sendingAt } from "@/lib/progress";
+import { cn } from "@/lib/utils";
 
 const STEP_MS = 450; // one leg of the route: a room centre to a doorway, or a pause at a stop
 
-function insidePolygon([x, y]: Pt, polygon: [number, number][]) {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const [xi, yi] = polygon[i];
-    const [xj, yj] = polygon[j];
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
+type Mode = "none" | "merge" | "wall" | "remove" | "door" | "walk";
+
+const HINTS: Record<Exclude<Mode, "none">, [string, string]> = {
+  merge: ["Click the room that stays.", "Now click the nook to merge into it."],
+  wall: ["Click one end of the missing wall.", "Now click the other end of the wall."],
+  remove: ["Click the fixture that is not there.", ""],
+  door: ["Click inside the swing of the door that is not there.", ""],
+  walk: ["Click the room the wheelchair starts in.", ""],
+};
+
+function failure(error: unknown) {
+  return error instanceof TypeError ? "Could not reach the ConformScope server." : String((error as Error).message);
 }
 
-type Correction =
-  | { kind: "merge"; point: Pt; target_point: Pt }
-  | { kind: "wall"; start: Pt; end: Pt }
-  | { kind: "remove_fixture"; point: Pt }
-  | { kind: "remove_door"; point: Pt }
-  | { kind: "override"; target: "room" | "door"; index: number; value: boolean };
-
-type Sheet = {
-  page: number;
-  title: string | null;
-  name: string;
-  annexe: boolean;
-};
-
-type Dossier = {
-  id: string;
-  sheets: Sheet[];
-};
-
-type PlanReading = {
-  id: string;
-  page: number;
-  name: string;
-  checked: boolean;
-  reason: string | null;
-  width: number;
-  height: number;
-  scale: string | null;
-  kind: "vector" | "picture" | null;
-  scale_source: string | null;
-  px_per_m: number | null;
-  pt_per_plan_px: number | null;
-  corrections: Correction[];
-  rooms: Room[];
-  fixtures?: Fixture[];
-  accessible_wc?: boolean | null;
-  doors?: Door[];
-  doors_ok?: boolean | null;
-  walk?: Walk | null;
-  warnings: string[];
-};
-
-type ExplainFailure = {
-  id: string;
-  kind: string;
-  subject: string;
-  reason: string;
-  fix: string;
-  source: "muse-spark" | "template";
-  verify:
-    | { status: "verified"; agree: boolean; confidence: number; note: string; doubtful: boolean }
-    | { status: "not_verified" };
-};
-
-type ExplainResult = {
-  failures: ExplainFailure[];
-  explained_by: string | null;
-  verified_by: string | null;
-};
-
-const DOOR_COLOURS = { ok: "#2e7d32", bad: "#c62828", unchecked: "#868e96" };
-
-function doorColour(door: Door) {
-  return door.ok === null ? DOOR_COLOURS.unchecked : door.ok ? DOOR_COLOURS.ok : DOOR_COLOURS.bad;
-}
-
-function doorSides(door: Door, rooms: Room[]) {
-  return door.rooms
-    .map((i) => (i === null ? "outside the rooms" : roomLabel(rooms[i], i)))
-    .join(" ↔ ");
-}
-
-const TYPE_COLOURS: Record<string, string> = {
-  living: "#f4a261",
-  bedroom: "#8ab17d",
-  kitchen: "#e9c46a",
-  bathroom: "#4ea8de",
-  wc: "#2a6f97",
-  corridor: "#b5a1d9",
-  entrance: "#d4a5a5",
-  storage: "#adb5bd",
-  other: "#ced4da",
-};
-
-const FIXTURE_COLOURS: Record<Fixture["kind"], string> = {
-  placard: "#6c757d",
-  appliance: "#e09f3e",
-  washbasin: "#1971c2",
-  toilet: "#1971c2",
-};
-
-function fixtureSummary(fixtures: Fixture[], indices: number[] | undefined) {
-  const counts = new Map<string, number>();
-  for (const i of indices ?? []) {
-    const kind = fixtures[i]?.kind;
-    if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
-  }
-  return [...counts].map(([kind, n]) => (n === 1 ? kind : `${n} ${kind}s`)).join(", ");
-}
-
-const SOURCE_TEXT: Record<Room["type_source"], string> = {
-  text: "name on the plan",
-  fixture: "toilet drawn",
-  muse: "Muse Spark",
-  none: "unknown",
-};
-
-const SCALE_TEXT: Record<string, string> = {
-  measured: "measured from the dimension lines",
-  scale: "from the written scale",
-  assumed: "assumed",
-  cote: "from a written dimension",
-  from_areas: "from the written areas",
-};
-
-function roomLabel(room: Room, i: number) {
-  return room.name || `Room ${i + 1}`;
-}
-
-type Stage = { stage: string; batch?: number; of?: number };
-
-function stageText({ stage, batch, of }: Stage) {
-  switch (stage) {
-    case "reading": return "Muse Spark is reading the plan";
-    case "measuring": return "Measuring the rooms against the drawn walls";
-    case "typing": return "Muse Spark is typing the unnamed rooms";
-    case "segmenting": return "SAM 3.1 is outlining the rooms";
-    case "scale": return "Muse Spark is reading a dimension for the scale";
-    case "fixtures": return "Muse Spark is finding the fixtures";
-    case "outlining": return `SAM 3.1 is outlining the fixtures ${batch}/${of}`;
-    default: return "Working";
-  }
-}
-
-// The check streams its stages as NDJSON (issue #12): one line per stage as it starts,
-// heartbeats while a long one runs, then the result or an error.
-async function streamed<T>(response: Response, onStage: (stage: Stage) => void): Promise<T> {
-  if (!response.ok || !response.body) {
-    const body = await response.json().catch(() => null);
-    throw new Error(body?.detail ?? `The server answered ${response.status}`);
-  }
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffered = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buffered += value;
-    const lines = buffered.split("\n");
-    buffered = done ? "" : lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line);
-      if ("result" in event) return event.result as T;
-      if ("error" in event) throw new Error(event.error);
-      if ("stage" in event) onStage(event);
-    }
-    if (done) throw new Error("The server stopped before answering.");
-  }
-}
-
-const NDJSON = { Accept: "application/x-ndjson" };
-
+/**
+ * The check screen (its look and its loading ported from pmr-checker): a masthead with
+ * the tally, the reading card over the sheet while it is checked, then the plan, the
+ * rooms and the report side by side.
+ */
 export function PlanIntake() {
   const [dossier, setDossier] = useState<Dossier | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
   const [page, setPage] = useState<number | null>(null);
   const [reading, setReading] = useState<PlanReading | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"none" | "merge" | "wall" | "remove" | "door" | "walk">("none");
-  // Walk the plan (issue #14): the route, and how many of its legs the icon has rolled.
+  // Each sheet as it was last read, so moving between a dossier's sheets shows one
+  // already checked at once; and each sheet's size, to draw it before it is checked.
+  const readings = useRef(new Map<string, PlanReading>());
+  const [sizes, setSizes] = useState<Record<string, [number, number]>>({});
+  const [readKeys, setReadKeys] = useState<ReadonlySet<string>>(new Set());
+  const key = (id: string, p: number) => `${id}|${p}`;
+  // The sheet open, by its key: a check answering for another is kept but not shown.
+  const openKey = useRef<string | null>(null);
+
+  const [fault, setFault] = useState<string | null>(null);
+  // The sheet's first check: the reading card stands over it until it lands.
+  const [checking, setChecking] = useState(false);
+  // A correction replayed: the plan stays on screen under a status pill.
+  const [replaying, setReplaying] = useState(false);
+  // How much of the file has been sent (0..1); null once it has all gone.
+  const [sent, setSent] = useState<number | null>(null);
+  const [stage, setStage] = useState<Stage | null>(null);
+  const [uploaded, setUploaded] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const [active, setActive] = useState<number | null>(null);
+  const [mode, setMode] = useState<Mode>("none");
+  const [pending, setPending] = useState<Pt | null>(null);
+  const [reportOpen, setReportOpen] = useState(true);
   const [explain, setExplain] = useState<ExplainResult | null>(null);
   const [explaining, setExplaining] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
+  const busy = checking || replaying || sent !== null;
+
+  // Walk the plan (issue #14): the route, and how many of its legs the icon has rolled.
   const [walk, setWalk] = useState<Walk | null>(null);
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -275,42 +106,19 @@ export function PlanIntake() {
     setPlaying(Boolean(next && next.route.length > 1));
   }
 
-  function show(body: PlanReading) {
-    setReading(body);
-    setExplain(null);
-    play(body.walk ?? null);
-  }
-
-  // Explain + verify (issue #16): a human sentence and a second opinion per failure.
-  async function explainFailures() {
-    if (!reading) return;
-    setExplaining(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/explain`);
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body) {
-        setError(body?.detail ?? `Explaining the failures failed (${response.status})`);
-        return;
-      }
-      setExplain(body as ExplainResult);
-    } catch {
-      setError("Could not reach the ConformScope server.");
-    } finally {
-      setExplaining(false);
-    }
-  }
-
   useEffect(() => {
     if (!playing || !walk) return;
     const legs = walk.route.length - 1;
     let frame = 0;
-    let last = performance.now();
+    // Seed from the first frame, not performance.now(): a rAF timestamp is the frame's
+    // start and can be earlier than "now", which made dt negative, the clock < 0 and
+    // walk.route[-1] undefined — the crash on "Replay the walk".
+    let last: number | null = null;
     const tick = (now: number) => {
-      const dt = now - last;
+      const dt = last === null ? 0 : now - last;
       last = now;
       setClock((c) => {
-        const next = Math.min(legs, c + dt / STEP_MS);
+        const next = Math.min(legs, Math.max(0, c + dt / STEP_MS));
         if (next >= legs) setPlaying(false);
         return next;
       });
@@ -320,47 +128,103 @@ export function PlanIntake() {
     return () => cancelAnimationFrame(frame);
   }, [playing, walk]);
 
-  async function walkFrom(room: number) {
-    if (!reading) return;
+  // Creeps inside the band of the stage the server last reported, and only the next
+  // stage takes it past the band's edge. Until the file has gone, the bar is the real
+  // fraction sent instead.
+  const drafting = (checking || replaying) && sent === null;
+  // (The bar is set back to nothing where each piece of work starts.)
+  useEffect(() => {
+    if (!drafting) return;
+    const band = bandOf(stage, uploaded);
+    const id = setInterval(() => setProgress((p) => crept(p, band)), 300);
+    return () => clearInterval(id);
+  }, [drafting, stage, uploaded]);
+
+  // Escape puts a correction tool down, as it would any half-made mark.
+  useEffect(() => {
+    if (mode === "none") return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setMode("none"); setPending(null); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode]);
+
+  // A refresh or a link: the URL says which dossier and sheet are open.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const id = q.get("plan");
+    if (!id) return;
+    const sheet = Number(q.get("sheet"));
+    fetch(`/api/plans/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("This plan is no longer on the server."))))
+      .then((d: Dossier) => {
+        setDossier(d);
+        const chosen = d.sheets.find((s) => s.page === sheet) ?? d.sheets.find((s) => !s.annexe) ?? d.sheets[0];
+        openSheet(d, chosen.page, "none");
+      })
+      .catch((e) => setFault(failure(e)));
+    // Once, on arrival: later sheets are opened by the auditor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function show(body: PlanReading) {
+    readings.current.set(key(body.id, body.page), body);
+    setReadKeys((ks) => new Set(ks).add(key(body.id, body.page)));
+    setReading(body);
+    setExplain(null);
+    play(body.walk ?? null);
+  }
+
+  /** Open a sheet: one already read is shown at once, as it was left; one never read
+   *  is drawn bare under the reading card while it is checked (issue #11). */
+  async function openSheet(d: Dossier, sheet: number, history: "push" | "replace" | "none" = "push") {
+    setPage(sheet);
+    openKey.current = key(d.id, sheet);
+    setActive(null); setMode("none"); setPending(null); setFault(null);
+    nameInUrl(d.id, sheet, history);
+    const kept = readings.current.get(key(d.id, sheet));
+    if (kept) { show(kept); return; }
+    setReading(null); play(null);
+    setChecking(true); setProgress(0);
+    sheetSize(d.id, sheet)
+      .then((size) => setSizes((s) => ({ ...s, [key(d.id, sheet)]: size })))
+      .catch(() => {});
     try {
-      const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/walk?from=${room}`);
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        setError(body?.detail ?? `Walking the plan failed (${response.status})`);
-        return;
-      }
-      play(body);
-      setMode("none");
-    } catch {
-      setError("Could not reach the ConformScope server.");
+      const response = await fetch(`/api/plans/${d.id}/sheets/${sheet}`, { headers: NDJSON });
+      const body = await streamed<PlanReading>(response, setStage);
+      // A late answer about a sheet already left is kept, not shown.
+      readings.current.set(key(d.id, sheet), body);
+      setReadKeys((ks) => new Set(ks).add(key(d.id, sheet)));
+      if (openKey.current === key(d.id, sheet)) show(body);
+    } catch (error) {
+      setFault(failure(error));
+    } finally {
+      setChecking(false);
+      setStage(null);
+      setUploaded(false);
     }
   }
 
-  // Where the icon is, and what it has passed so far.
-  const legs = walk ? walk.route.length - 1 : 0;
-  const at = Math.min(Math.floor(clock), Math.max(legs, 0));
-  const icon: Pt | null = (() => {
-    if (!walk || walk.route.length === 0) return null;
-    const a = walk.route[at].point_px;
-    const b = walk.route[Math.min(at + 1, legs)].point_px;
-    const f = clock - at;
-    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
-  })();
-  const passed = walk ? walk.route.slice(0, at + 1) : [];
-  const reachedSoFar = new Set(passed.filter((s) => s.event === "enter").map((s) => s.room));
-  const stopsSoFar = passed.filter((s) => s.event === "blocked_door" || s.event === "cannot_turn");
-  const [pending, setPending] = useState<Pt | null>(null);
-  const [stage, setStage] = useState<Stage | null>(null);
-
-  function failed(error: unknown) {
-    setError(error instanceof TypeError ? "Could not reach the ConformScope server." : String((error as Error).message));
+  async function upload(file: File) {
+    setFault(null); setReading(null); setDossier(null); setPage(null); setActive(null);
+    setFileName(file.name); play(null);
+    setSent(0); setStage(null); setUploaded(true);
+    readings.current.clear(); setReadKeys(new Set());
+    try {
+      const d = await uploadDossier(file, (f) => setSent(f >= 1 ? null : f));
+      setSent(null);
+      setDossier(d);
+      const first = d.sheets.find((s) => !s.annexe) ?? d.sheets[0];
+      await openSheet(d, first.page, "replace");
+    } catch (error) {
+      setSent(null);
+      setUploaded(false);
+      setFault(failure(error));
+    }
   }
 
   async function postCorrections(corrections: Correction[]) {
     if (!reading) return;
-    setBusy(true);
-    setError(null);
-    setStage(null);
+    setReplaying(true); setFault(null); setStage(null); setProgress(0);
     try {
       const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/corrections`, {
         method: "POST",
@@ -371,507 +235,401 @@ export function PlanIntake() {
       setPending(null);
       setMode("none");
     } catch (error) {
-      failed(error);
+      setFault(`The correction was not applied. ${failure(error)}`);
     } finally {
-      setBusy(false);
+      setReplaying(false);
       setStage(null);
     }
   }
 
-  function onPlanClick(event: MouseEvent<SVGSVGElement>) {
+  const correct = (c: Correction) => reading && postCorrections([...reading.corrections, c]);
+
+  async function walkFrom(room: number) {
+    if (!reading) return;
+    try {
+      const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/walk?from=${room}`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail ?? `Walking the plan failed (${response.status})`);
+      play(body);
+      setMode("none");
+    } catch (error) {
+      setFault(failure(error));
+    }
+  }
+
+  // Explain + verify (issue #16): a human sentence and a second opinion per failure.
+  async function explainFailures() {
+    if (!reading) return;
+    setExplaining(true); setFault(null);
+    try {
+      const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/explain`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body) throw new Error(body?.detail ?? `Explaining the failures failed (${response.status})`);
+      setExplain(body as ExplainResult);
+    } catch (error) {
+      setFault(failure(error));
+    } finally {
+      setExplaining(false);
+    }
+  }
+
+  /** A click on the plan while a correction tool is in hand, in plan pixels. */
+  function onPoint([xPx, yPx]: Pt) {
     if (!reading || mode === "none" || busy) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const xPx = ((event.clientX - rect.left) / rect.width) * reading.width;
-    const yPx = ((event.clientY - rect.top) / rect.height) * reading.height;
     if (mode === "walk") {
       const room = reading.rooms.findIndex((r) => insidePolygon([xPx, yPx], r.polygon_px));
       if (room >= 0) walkFrom(room);
       return;
     }
+    // Corrections are anchored in PDF points, so they survive a re-render (issue #6).
     const f = reading.pt_per_plan_px ?? 1;
     const pt: Pt = [Math.round(xPx * f * 10) / 10, Math.round(yPx * f * 10) / 10];
-    if (mode === "remove") {
-      postCorrections([...reading.corrections, { kind: "remove_fixture", point: pt }]);
-      return;
-    }
-    if (mode === "door") {
-      postCorrections([...reading.corrections, { kind: "remove_door", point: pt }]);
-      return;
-    }
-    if (!pending) {
-      setPending(pt);
-      return;
-    }
-    if (mode === "merge") {
-      // First click: the room that stays. Second: the nook it claims.
-      postCorrections([...reading.corrections, { kind: "merge", point: pt, target_point: pending }]);
-    } else {
-      postCorrections([...reading.corrections, { kind: "wall", start: pending, end: pt }]);
-    }
+    if (mode === "remove") { correct({ kind: "remove_fixture", point: pt }); return; }
+    if (mode === "door") { correct({ kind: "remove_door", point: pt }); return; }
+    if (!pending) { setPending(pt); return; }
+    // Merge: first click the room that stays, second the nook it claims.
+    if (mode === "merge") correct({ kind: "merge", point: pt, target_point: pending });
+    else correct({ kind: "wall", start: pending, end: pt });
   }
 
-  // A sheet is checked the first time it is opened, then kept (issue #11).
-  async function openSheet(id: string, sheet: number) {
-    setBusy(true);
-    setError(null);
-    setReading(null);
-    setPage(sheet);
-    setMode("none");
+  function toggle(next: Mode) {
+    setMode(mode === next ? "none" : next);
     setPending(null);
-    setStage(null);
-    try {
-      const response = await fetch(`/api/plans/${id}/sheets/${sheet}`, { headers: NDJSON });
-      show(await streamed<PlanReading>(response, setStage));
-    } catch (error) {
-      failed(error);
-    } finally {
-      setBusy(false);
-      setStage(null);
-    }
+    setActive(null);
   }
 
-  async function upload(file: File) {
-    setBusy(true);
-    setError(null);
-    setReading(null);
-    setDossier(null);
-    setPage(null);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const response = await fetch("/api/plans", { method: "POST", body: form });
-      const body: Dossier | null = await response.json().catch(() => null);
-      if (!response.ok || !body) {
-        setError((body as { detail?: string } | null)?.detail ?? `Upload failed (${response.status})`);
-        setBusy(false);
-        return;
-      }
-      setDossier(body);
-      const first = body.sheets.find((sheet) => !sheet.annexe) ?? body.sheets[0];
-      await openSheet(body.id, first.page);
-    } catch {
-      setError("Could not reach the ConformScope server.");
-      setBusy(false);
-    }
-  }
+  // Where the icon is, and what it has passed so far.
+  const legs = walk ? walk.route.length - 1 : 0;
+  const at = Math.min(Math.floor(clock), Math.max(legs, 0));
+  const frame: WalkFrame | null = (() => {
+    if (!walk || walk.route.length === 0) return null;
+    const a = walk.route[at].point_px;
+    const b = walk.route[Math.min(at + 1, legs)].point_px;
+    const f = clock - at;
+    const passed = walk.route.slice(0, at + 1);
+    return {
+      icon: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f],
+      reached: new Set(passed.filter((s) => s.event === "enter").map((s) => s.room)),
+      stops: passed.filter((s) => s.event === "blocked_door" || s.event === "cannot_turn"),
+    };
+  })();
 
-  return (
-    <div className={styles.intake}>
-      <label className={styles.drop}>
-        <input
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg,.webp"
-          disabled={busy}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) upload(file);
-          }}
-        />
-        {busy ? "Reading and measuring the plan…" : "Drop a plan or a whole building (PDF or image)"}
-      </label>
+  const sheet = dossier?.sheets.find((s) => s.page === page) ?? null;
+  const size = dossier && page !== null ? sizes[key(dossier.id, page)] : undefined;
+  const shown = reading && reading.page === page && reading.id === dossier?.id ? reading : null;
+  const checked = shown?.rooms.filter((r) => r.conforme !== null) ?? [];
+  const passing = checked.filter((r) => r.conforme).length;
+  // The pending point is kept in PDF points, as corrections are; the drawing wants pixels.
+  const pointToFix = (pending: Pt | null) => (pending && shown?.pt_per_plan_px
+    ? [pending[0] / shown.pt_per_plan_px, pending[1] / shown.pt_per_plan_px] as Pt : pending);
+  // Whole percents: 0.42 × 100 is 42.00000000000001 in floating point.
+  const pct = Math.round(sent !== null ? sendingAt(sent) : progress);
 
-      {busy && (
-        <p role="status" className={styles.muted}>
-          {/* Indeterminate: the bar says work is going on, the stage says which. */}
-          <progress aria-label="Checking the sheet" style={{ width: "100%" }} />
-          <br />
-          {stage ? `${stageText(stage)}…` : "Starting…"}
-        </p>
+  const correctionTools = shown?.checked ? (
+    <Group label="Corrections">
+      <IconButton label="Merge a nook into a room" icon={Combine} pressed={mode === "merge"}
+                  disabled={busy} onClick={() => toggle("merge")} />
+      <IconButton label="Draw a missing wall" icon={PenLine} pressed={mode === "wall"}
+                  disabled={busy} onClick={() => toggle("wall")} />
+      <IconButton label="Remove a fixture" icon={PackageX} pressed={mode === "remove"}
+                  disabled={busy || !shown.fixtures?.length} onClick={() => toggle("remove")} />
+      <IconButton label="Remove a door" icon={DoorClosed} pressed={mode === "door"}
+                  disabled={busy || !shown.doors?.length} onClick={() => toggle("door")} />
+      <IconButton label="Start the walk in a room" icon={Accessibility} pressed={mode === "walk"}
+                  disabled={busy || shown.rooms.length === 0} onClick={() => toggle("walk")} />
+      <IconButton label="Clear every correction" icon={RotateCcw}
+                  disabled={busy || shown.corrections.length === 0} onClick={() => postCorrections([])} />
+    </Group>
+  ) : null;
+
+  const card = (over: boolean) => (
+    // An unfilled drawing frame, waiting for its sheet — or, the sheet known, a note
+    // pinned over it saying what it is still waiting for.
+    <div className={cn("w-full max-w-[560px] rounded-lg border border-dashed border-border px-6 py-12 text-center sm:px-14",
+                       over && "status pointer-events-auto border-solid bg-card/95 py-6 shadow-lg")}>
+      {!over && <div className="font-mono text-[44px] leading-none text-primary" aria-hidden>Ø</div>}
+      <p className={cn("font-lettering text-[13px] font-semibold uppercase tracking-[.14em]", !over && "mt-4")}>
+        {shown && !shown.checked ? "Plan annexe — not checked"
+          : sent !== null ? "Sending the plan…"
+          : checking ? "Checking the sheet…"
+          : over ? "Check interrupted" : "No plan open"}
+      </p>
+      <p className="mx-auto mt-2 max-w-[46ch] text-muted-foreground">
+        {shown && !shown.checked ? shown.reason
+          : sent !== null ? "The file is sent as it is; its sheets are listed as soon as it arrives."
+          : checking ? "Muse Spark reads the names and the scale, then the rooms are measured in metres and every turning circle, door and toilet is checked."
+          : over ? "Open this sheet again to resume its check."
+          : "Open a home plan, PDF or picture — one sheet or a whole building. ConformScope measures every room in metres and checks the Ø1.50 m turning circle, the doors and the walk through the home."}
+      </p>
+
+      {!busy && !over && (
+        <Button className="mt-6" onClick={() => picker.current?.click()}>
+          <FileUp />Choose a plan
+        </Button>
+      )}
+      {!busy && over && !shown && dossier && page !== null && (
+        <Button className="mt-4" variant="outline" onClick={() => openSheet(dossier, page, "none")}>
+          <RotateCcw />Check this sheet again
+        </Button>
       )}
 
-      {dossier && dossier.sheets.length > 1 && (
-        <nav className={styles.toolbar} aria-label="Sheets">
-          {dossier.sheets.map((sheet) => (
-            <button
-              key={sheet.page}
-              type="button"
-              data-active={sheet.page === page}
-              disabled={busy}
-              title={sheet.annexe ? "Not checked: a plan annexe" : (sheet.title ?? undefined)}
-              style={sheet.annexe ? { opacity: 0.55 } : undefined}
-              onClick={() => openSheet(dossier.id, sheet.page)}
-            >
-              {sheet.name}
-            </button>
-          ))}
-          <span className={styles.muted}>
-            {dossier.sheets.length} sheets · {dossier.sheets.filter((sheet) => sheet.annexe).length} not checked
-          </span>
-        </nav>
-      )}
-
-      {error && <p role="alert" className={styles.error}>{error}</p>}
-
-      {reading && reading.checked && (
-        <div className={styles.toolbar}>
-          <button
-            type="button"
-            data-active={mode === "merge"}
-            disabled={busy}
-            onClick={() => { setMode(mode === "merge" ? "none" : "merge"); setPending(null); }}
-          >
-            Merge a nook into a room
-          </button>
-          <button
-            type="button"
-            data-active={mode === "wall"}
-            disabled={busy}
-            onClick={() => { setMode(mode === "wall" ? "none" : "wall"); setPending(null); }}
-          >
-            Draw a missing wall
-          </button>
-          <button
-            type="button"
-            data-active={mode === "remove"}
-            disabled={busy || !reading.fixtures?.length}
-            onClick={() => { setMode(mode === "remove" ? "none" : "remove"); setPending(null); }}
-          >
-            Remove a fixture
-          </button>
-          <button
-            type="button"
-            data-active={mode === "door"}
-            disabled={busy || !reading.doors?.length}
-            onClick={() => { setMode(mode === "door" ? "none" : "door"); setPending(null); }}
-          >
-            Remove a door
-          </button>
-          <button
-            type="button"
-            data-active={mode === "walk"}
-            disabled={busy || reading.rooms.length === 0}
-            onClick={() => { setMode(mode === "walk" ? "none" : "walk"); setPending(null); }}
-          >
-            Start the walk here
-          </button>
-          <button
-            type="button"
-            disabled={busy || reading.corrections.length === 0}
-            onClick={() => postCorrections([])}
-          >
-            Clear corrections
-          </button>
-          <span className={styles.muted}>
-            {mode === "merge" && (pending ? "Now click the nook to merge into it." : "Click the room that stays.")}
-            {mode === "wall" && (pending ? "Now click the other end of the wall." : "Click one end of the missing wall.")}
-            {mode === "remove" && "Click the fixture that is not there."}
-            {mode === "door" && "Click inside the swing of the door that is not there."}
-            {mode === "walk" && "Click the room the wheelchair starts in."}
-            {mode === "none" && `${reading.corrections.length} correction${reading.corrections.length === 1 ? "" : "s"} saved`}
-          </span>
+      {(checking || sent !== null) && (
+        <div className="mt-6" role="status" aria-live="polite">
+          <div className="flex items-center gap-3">
+            <Progress value={pct} aria-label="Checking the sheet" className="h-1 rounded-none bg-border" />
+            <span className="min-w-[4ch] text-right font-mono text-xs text-primary">{pct}%</span>
+          </div>
+          <p className="mt-2 text-left font-mono text-xs text-muted-foreground">{labelOf(stage, sent)}</p>
         </div>
       )}
-
-      {reading && (
-        <section className={styles.result}>
-          <div className={styles.plan}>
-            {/* eslint-disable-next-line @next/next/no-img-element -- served by our API, sized by the plan */}
-            <img src={`/api/plans/${reading.id}/sheets/${reading.page}/image`} alt={`Sheet ${reading.name}`} />
-            <svg
-              className={styles.overlay}
-              viewBox={`0 0 ${reading.width} ${reading.height}`}
-              onClick={onPlanClick}
-              style={{ cursor: mode === "none" ? undefined : "crosshair" }}
-            >
-              {reading.rooms.map((room, i) => (
-                <polygon
-                  key={i}
-                  points={room.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
-                  fill={TYPE_COLOURS[room.room_type] ?? TYPE_COLOURS.other}
-                  fillOpacity={0.45}
-                  stroke={room.warnings.length ? "#d32f2f" : "#1d3557"}
-                  strokeWidth={room.warnings.length ? 4 : 2}
-                >
-                  <title>{roomLabel(room, i)}</title>
-                </polygon>
-              ))}
-              {(reading.fixtures ?? []).map((fixture, i) => (
-                <polygon
-                  key={`fixture-${i}`}
-                  points={fixture.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
-                  fill={FIXTURE_COLOURS[fixture.kind]}
-                  fillOpacity={0.25}
-                  stroke={FIXTURE_COLOURS[fixture.kind]}
-                  strokeWidth={2}
-                >
-                  <title>{fixture.outline_source === "vector" ? fixture.kind : `${fixture.kind} (outlined by ${fixture.outline_source === "sam" ? "SAM 3.1" : "Muse Spark"})`}</title>
-                </polygon>
-              ))}
-              {(reading.fixtures ?? []).map((fixture, i) =>
-                fixture.space && fixture.space.polygon_px.length > 0 ? (
-                  <polygon
-                    key={`space-${i}`}
-                    points={fixture.space.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
-                    fill={fixture.space.fits ? "#2e7d32" : "#c62828"}
-                    fillOpacity={0.15}
-                    stroke={fixture.space.fits ? "#2e7d32" : "#c62828"}
-                    strokeWidth={3}
-                    strokeDasharray={fixture.space.to_confirm ? "8 6" : undefined}
-                  >
-                    <title>{fixture.space.verdict}</title>
-                  </polygon>
-                ) : null,
-              )}
-              {(reading.doors ?? []).map((door, i) => (
-                <line
-                  key={`door-${i}`}
-                  x1={door.doorway_px[0][0]}
-                  y1={door.doorway_px[0][1]}
-                  x2={door.doorway_px[1][0]}
-                  y2={door.doorway_px[1][1]}
-                  stroke={doorColour(door)}
-                  strokeWidth={9}
-                  strokeLinecap="round"
-                >
-                  <title>{`${doorSides(door, reading.rooms)} · ${door.verdict}`}</title>
-                </line>
-              ))}
-              {walk && reading.rooms.map((room, i) =>
-                reachedSoFar.has(i) ? (
-                  <polygon
-                    key={`reached-${i}`}
-                    points={room.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
-                    fill="#2e7d32"
-                    fillOpacity={0.12}
-                    stroke="#2e7d32"
-                    strokeWidth={5}
-                    pointerEvents="none"
-                  />
-                ) : null,
-              )}
-              {stopsSoFar.map((step, i) => (
-                <g key={`stop-${i}`} pointerEvents="none">
-                  <circle cx={step.point_px[0]} cy={step.point_px[1]} r={20} fill="#c62828" />
-                  <text x={step.point_px[0]} y={step.point_px[1] + 9} textAnchor="middle" fontSize={26}
-                        fontWeight={700} fill="#fff">!</text>
-                </g>
-              ))}
-              {icon && (
-                <g pointerEvents="none" transform={`translate(${icon[0]} ${icon[1]})`}>
-                  <circle r={24} fill="#1d3557" stroke="#fff" strokeWidth={4} />
-                  <text y={10} textAnchor="middle" fontSize={28} fill="#fff">♿</text>
-                </g>
-              )}
-              {reading.rooms.map((room, i) =>
-                room.circle_px && room.circle_m !== null && reading.px_per_m ? (
-                  <circle
-                    key={`circle-${i}`}
-                    cx={room.circle_px[0]}
-                    cy={room.circle_px[1]}
-                    r={(room.circle_m / 2) * reading.px_per_m}
-                    fill={room.conforme ? "#2e7d32" : "#c62828"}
-                    fillOpacity={0.18}
-                    stroke={room.conforme ? "#2e7d32" : "#c62828"}
-                    strokeWidth={3}
-                  >
-                    <title>{room.verdict ?? roomLabel(room, i)}</title>
-                  </circle>
-                ) : null,
-              )}
-            </svg>
-          </div>
-
-          <aside>
-            {!reading.checked && <p className={styles.muted}>{reading.reason}</p>}
-            <h2>{reading.name} · {reading.rooms.length} rooms measured</h2>
-            <p className={styles.muted}>
-              Scale: {reading.scale ?? "not written"}
-              {reading.scale_source && ` · ${SCALE_TEXT[reading.scale_source] ?? reading.scale_source}`}
-            </p>
-            {reading.accessible_wc != null && (
-              <p className={reading.accessible_wc ? styles.badgeOk : styles.badgeBad}>
-                {reading.accessible_wc
-                  ? "Accessible WC: a toilet has a 0.80 × 1.30 m transfer space"
-                  : "No toilet has a 0.80 × 1.30 m transfer space"}
-              </p>
-            )}
-            {walk && walk.route.length > 0 && (
-              <>
-                <p className={walk.unreachable.length === 0 && walk.stops.length === 0 ? styles.badgeOk : styles.badgeBad}>
-                  ♿ {walk.verdict}
-                </p>
-                <p>
-                  <button type="button" onClick={() => play(walk)} disabled={playing}>
-                    {clock > 0 ? "Replay the walk" : "Play the walk"}
-                  </button>{" "}
-                  {playing && (<button type="button" onClick={() => setPlaying(false)}>Pause</button>)}
-                </p>
-                {walk.unreachable.length > 0 && (
-                  <p className={styles.muted}>
-                    Not reached: {walk.unreachable.map((u) => roomLabel(reading.rooms[u.room], u.room)).join(", ")}
-                  </p>
-                )}
-                {walk.stops.length > 0 && (
-                  <ul className={styles.warnings}>
-                    {walk.stops.map((stop, i) => (
-                      <li key={i}>
-                        {stop.kind === "door"
-                          ? `Stopped at a door: ${stop.reason}`
-                          : `${roomLabel(reading.rooms[stop.room ?? 0], stop.room ?? 0)}: ${stop.reason}`}{" "}
-                        {stop.kind === "door" && stop.door !== null && (<button type="button" disabled={busy} onClick={() => postCorrections([...reading.corrections, { kind: "override", target: "door", index: stop.door as number, value: true }])}>Fix it: mark this door wide enough</button>)}
-                        {stop.kind === "turn" && stop.room !== null && (<button type="button" disabled={busy} onClick={() => postCorrections([...reading.corrections, { kind: "override", target: "room", index: stop.room as number, value: true }])}>Fix it: mark this room conforme</button>)}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-            {reading.doors_ok != null && (() => {
-              const doors = reading.doors ?? [];
-              const judged = doors.filter((door) => door.ok !== null);
-              const narrow = judged.filter((door) => !door.ok);
-              return (
-                <>
-                  <p className={reading.doors_ok ? styles.badgeOk : styles.badgeBad}>
-                    {reading.doors_ok
-                      ? `All ${judged.length} doors are wide enough`
-                      : `${narrow.length} door${narrow.length === 1 ? " is" : "s are"} too narrow`}
-                  </p>
-                  {narrow.length > 0 && (
-                    <ul className={styles.warnings}>
-                      {narrow.map((door) => {
-                        const doorIndex = doors.indexOf(door);
-                        return (
-                          <li key={doorIndex}>
-                            {doorSides(door, reading.rooms)}: {door.width_m.toFixed(2)} m, needs{" "}
-                            {door.required_m?.toFixed(2)} m
-                            {door.role === "entrance" && " (read as the entrance)"}{" "}
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                postCorrections([
-                                  ...reading.corrections,
-                                  { kind: "override", target: "door", index: doorIndex, value: true },
-                                ])
-                              }
-                            >
-                              Override: mark wide enough
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </>
-              );
-            })()}
-            {!explain ? (
-              <p>
-                <button type="button" onClick={explainFailures} disabled={explaining || busy}>
-                  {explaining ? "Explaining…" : "Explain the failures"}
-                </button>{" "}
-                <span className={styles.muted}>
-                  A plain-language reason and fix for each failure, double-checked by
-                  Muse Spark Open.
-                </span>
-              </p>
-            ) : explain.failures.length === 0 ? (
-              <p className={styles.badgeOk}>Nothing to explain: every check passed.</p>
-            ) : (
-              <>
-                <h3>Why it fails, and how to fix it</h3>
-                <ul className={styles.warnings}>
-                  {explain.failures.map((failure) => (
-                    <li key={failure.id}>
-                      <strong>{failure.subject}</strong>
-                      <br />
-                      {failure.reason}
-                      <br />
-                      <em>Fix: {failure.fix}</em>
-                      <br />
-                      {failure.verify.status === "verified" ? (
-                        failure.verify.doubtful ? (
-                          <span className={styles.badgeBad}>
-                            ⚠ Doubtful — the verifier{" "}
-                            {failure.verify.agree ? "is unsure" : "disagrees"} (
-                            {Math.round(failure.verify.confidence * 100)}%):{" "}
-                            {failure.verify.note}
-                          </span>
-                        ) : (
-                          <span className={styles.badgeOk}>
-                            ✓ Verified by Muse Spark Open (
-                            {Math.round(failure.verify.confidence * 100)}%)
-                          </span>
-                        )
-                      ) : (
-                        <span className={styles.muted}>Not verified (no verifier key).</span>
-                      )}{" "}
-                      <span className={styles.muted}>
-                        {failure.source === "template" ? "Written from the measurements." : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            {reading.warnings.length > 0 && (
-              <ul className={styles.warnings}>
-                {reading.warnings.map((warning, i) => (
-                  <li key={i}>⚠ {warning}</li>
-                ))}
-              </ul>
-            )}
-            <ol className={styles.rooms}>
-              {reading.rooms.map((room, i) => (
-                <li key={i}>
-                  <strong>
-                    <span
-                      className={styles.swatch}
-                      style={{ background: TYPE_COLOURS[room.room_type] ?? TYPE_COLOURS.other }}
-                    />
-                    {roomLabel(room, i)}
-                  </strong>
-                  <span>
-                    {room.room_type} ({SOURCE_TEXT[room.type_source]})
-                    {room.area_m2 !== null && ` · ${room.area_m2} m²`}
-                    {room.written_area_m2 !== null && ` (written ${room.written_area_m2} m²)`}
-                  </span>
-                  {room.doors && room.doors.length > 0 && (
-                    <span>
-                      {room.doors.length} door{room.doors.length === 1 ? "" : "s"}
-                    </span>
-                  )}
-                  {room.fixtures && room.fixtures.length > 0 && (
-                    <span>Fixtures: {fixtureSummary(reading.fixtures ?? [], room.fixtures)}</span>
-                  )}
-                  {(room.fixtures ?? []).map((f) => {
-                    const space = reading.fixtures?.[f]?.space;
-                    return space ? (
-                      <span key={`space-${f}`} className={space.fits ? styles.badgeOk : styles.badgeBad}>
-                        {space.verdict}
-                      </span>
-                    ) : null;
-                  })}
-                  {room.verdict && (
-                    <span className={room.conforme ? styles.badgeOk : styles.badgeBad}>{room.verdict}</span>
-                  )}
-                  {room.conforme !== null && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        postCorrections([
-                          ...reading.corrections,
-                          { kind: "override", target: "room", index: i, value: !room.conforme },
-                        ])
-                      }
-                    >
-                      {room.conforme ? "Override: mark not conforme" : "Override: mark conforme"}
-                    </button>
-                  )}
-                  {room.outline_source !== "auto" && (
-                    <span className={styles.badgeHand}>corrected by hand</span>
-                  )}
-                  {room.warnings.map((warning, j) => (
-                    <span key={j} className={styles.error}>⚠ {warning}</span>
-                  ))}
-                </li>
-              ))}
-            </ol>
-          </aside>
-        </section>
-      )}
     </div>
+  );
+
+  return (
+    <TooltipProvider>
+    <main className="tool bg-background text-foreground">
+      <header className="masthead flex h-14 flex-none items-center gap-3 border-b border-border bg-card px-4">
+        <Link href="/" className={cn("flex flex-none items-center gap-2 font-lettering text-[13px] font-bold uppercase tracking-[.18em]",
+                                     shown && "hidden xl:flex")}>
+          <span aria-hidden className="font-mono text-base text-primary">Ø</span>ConformScope
+        </Link>
+        <Separator orientation="vertical" className={cn("h-6!", shown && "hidden xl:block")} />
+
+        {shown ? (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <p className="truncate text-sm font-medium" title={fileName ?? undefined}>
+              {fileName ?? "Plan"}
+              {sheet && (dossier?.sheets.length ?? 0) > 1 && <span className="text-muted-foreground"> — {sheet.name}</span>}
+            </p>
+            <div className="flex items-center gap-3.5 text-xs text-muted-foreground [&_svg]:size-3.5">
+              <span className="tally inline-flex items-center gap-1 whitespace-nowrap">
+                <CircleCheck aria-hidden />
+                <span className="font-mono text-foreground">{passing}</span>/
+                <span className="font-mono text-foreground">{checked.length}</span> rooms pass
+              </span>
+              <span className="hidden items-center gap-1 whitespace-nowrap font-mono md:inline-flex">
+                <CircleDashed aria-hidden />Ø 1.50 m
+              </span>
+              {shown.checked && (
+                <span className={cn("hidden items-center gap-1 whitespace-nowrap lg:inline-flex",
+                                    shown.scale_source === "assumed" && "text-primary")}>
+                  <Ruler aria-hidden />
+                  {shown.scale ?? "no written scale"}
+                  {shown.scale_source && `, ${SCALE_TEXT[shown.scale_source] ?? shown.scale_source}`}
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
+            Can a wheelchair live in this home?
+          </span>
+        )}
+
+        <div className="ml-auto flex flex-none items-center gap-2">
+          {dossier && dossier.sheets.length > 1 && (
+            <Sheets sheets={dossier.sheets} open={page} disabled={sent !== null}
+                    read={(s) => readKeys.has(key(dossier.id, s.page))}
+                    onOpen={(s) => openSheet(dossier, s.page)} />
+          )}
+          {shown?.checked && (
+            <Button variant="outline" size="sm" aria-pressed={reportOpen}
+                    className="aria-pressed:border-primary aria-pressed:bg-accent"
+                    onClick={() => setReportOpen((o) => !o)}>
+              <FileText /><span className="sr-only md:not-sr-only">Report</span>
+            </Button>
+          )}
+          <Button variant={shown ? "ghost" : "outline"} size="sm"
+                  className={cn(!shown && "border-primary/60")}
+                  disabled={busy} onClick={() => picker.current?.click()}>
+            <FileUp /><span className={cn(shown && "sr-only lg:not-sr-only")}>Open a plan</span>
+          </Button>
+          <input ref={picker} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden
+                 onChange={(e) => {
+                   const file = e.target.files?.[0];
+                   // Emptied, so choosing the same file again still reads it.
+                   e.target.value = "";
+                   if (file) upload(file);
+                 }} />
+        </div>
+      </header>
+
+      {fault && (
+        <Alert role="alert" className="fault mx-4 mt-3 mb-1 w-auto border-destructive/40 bg-destructive/10 text-foreground">
+          <CircleAlert className="text-destructive!" />
+          <AlertDescription className="text-foreground/85">{fault}</AlertDescription>
+        </Alert>
+      )}
+
+      {!(shown?.checked) && (
+        dossier && page !== null && (size || shown) ? (
+          <div className="sheet relative min-h-0 flex-1 [&>.drawing]:h-full">
+            {/* Keyed on the sheet: each sheet opens whole, not at the zoom the last was left at. */}
+            <PlanViewer key={`${dossier.id}-${page}`}
+                        sheet={{ id: dossier.id, page, width: shown?.width ?? size![0], height: shown?.height ?? size![1] }}
+                        reading={null} active={null} onPick={() => {}} />
+            <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center px-4">
+              {card(true)}
+            </div>
+          </div>
+        ) : (
+          <div className="empty grid flex-1 place-items-center overflow-y-auto p-6 sm:p-10">
+            {card(false)}
+          </div>
+        )
+      )}
+
+      {shown?.checked && dossier && (
+        <Workspace
+          reportOpen={reportOpen}
+          plan={
+            <div className="relative h-full [&>.drawing]:h-full">
+              <PlanViewer key={`${dossier.id}-${shown.page}`}
+                          sheet={{ id: shown.id, page: shown.page, width: shown.width, height: shown.height }}
+                          reading={shown} active={active}
+                          onPick={(i) => setActive(i)}
+                          correcting={mode !== "none" && !busy} onPoint={onPoint}
+                          pending={pointToFix(pending)}
+                          walk={frame} toolbarExtra={correctionTools} />
+              {mode !== "none" && !replaying && (
+                <p role="status"
+                   className="pointer-events-none absolute top-13 left-1/2 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-2xl bg-ink/85 px-3.5 py-1.5 text-center text-xs text-vellum shadow-md backdrop-blur-xl backdrop-saturate-150 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200">
+                  {HINTS[mode][pending ? 1 : 0] || HINTS[mode][0]} Esc to cancel.
+                </p>
+              )}
+              {replaying && (
+                <div role="status" aria-live="polite"
+                     className="absolute top-13 left-1/2 w-[min(420px,calc(100%-2rem))] -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-lg">
+                  <p className="font-lettering text-[11px] font-semibold uppercase tracking-[.14em]">Applying the correction…</p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <Progress value={pct} aria-label="Applying the correction" className="h-1 rounded-none bg-border" />
+                    <span className="min-w-[4ch] text-right font-mono text-xs text-primary">{pct}%</span>
+                  </div>
+                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">{labelOf(stage, null)}</p>
+                </div>
+              )}
+            </div>
+          }
+          rooms={
+            <RoomsPane
+              rooms={shown.rooms} active={active}
+              onPick={(i) => { setMode("none"); setPending(null); setActive(i); }}
+              notices={
+                <>
+                  {shown.scale_source === "assumed" && (
+                    <p role="status" className="assumed-scale mb-3 rounded-sm px-3 py-2.5 text-xs leading-relaxed">
+                      Scale assumed: no dimension was read on this plan. Check it before you rely on a verdict.
+                    </p>
+                  )}
+                  {/* The tool talking about its own work: cobalt, never a verdict. */}
+                  {shown.warnings.map((w) => (
+                    <p key={w} className="notice mb-3 rounded-sm border-l-2 border-primary bg-accent px-3 py-2.5 text-xs leading-relaxed text-[#b9cdea]">
+                      {w}
+                    </p>
+                  ))}
+                </>
+              }
+              body={(room, i, open) => {
+                if (!open) return null;
+                const fixtures = shown.fixtures ?? [];
+                return (
+                  <div className="grid gap-2 border-t border-secondary bg-accent/40 px-3 py-3 text-xs motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200">
+                    {room.verdict && <p><Mark ok={room.conforme}>{room.verdict}</Mark></p>}
+                    <p className="text-muted-foreground">
+                      Typed from the {SOURCE_TEXT[room.type_source]}
+                      {room.written_area_m2 !== null && ` · ${room.written_area_m2} m² written on the plan`}
+                    </p>
+                    {(room.doors?.length ?? 0) > 0 && (
+                      <p className="text-muted-foreground">
+                        {room.doors!.length} door{room.doors!.length === 1 ? "" : "s"}
+                        {room.doors!.some((d) => shown.doors?.[d]?.ok === false) && (
+                          <span className="text-non-conforme"> · one is too narrow</span>
+                        )}
+                      </p>
+                    )}
+                    {(room.fixtures?.length ?? 0) > 0 && (
+                      <p className="text-muted-foreground">Fixtures: {fixtureSummary(fixtures, room.fixtures)}</p>
+                    )}
+                    {(room.fixtures ?? []).map((f) => {
+                      const space = fixtures[f]?.space;
+                      return space ? <p key={f}><Mark ok={space.fits}>{space.verdict}</Mark></p> : null;
+                    })}
+                    {room.outline_source !== "auto" && <p className="text-primary">Outline corrected by hand</p>}
+                    {room.warnings.map((w) => <p key={w} className="text-non-conforme">{w}</p>)}
+                    <div className="mt-1 flex flex-wrap gap-1.5 border-t border-dashed border-border pt-2">
+                      <Button size="xs" variant="outline" disabled={busy} onClick={() => walkFrom(i)}>
+                        <Accessibility />Start the walk here
+                      </Button>
+                      {room.conforme !== null && (
+                        <Button size="xs" variant="ghost" disabled={busy}
+                                onClick={() => correct({ kind: "override", target: "room", index: i, value: !room.conforme })}>
+                          {room.conforme ? "Override: mark as failing" : "Override: mark as passing"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }} />
+          }
+          report={
+            <ReportPane reading={shown} active={active} onPickRoom={setActive}
+                        walk={walk} playing={playing} played={clock > 0}
+                        onPlay={() => play(walk)} onPause={() => setPlaying(false)}
+                        busy={busy} onCorrect={correct}
+                        explain={explain} explaining={explaining} onExplain={explainFailures}
+                        onClose={() => setReportOpen(false)} />
+          } />
+      )}
+    </main>
+    </TooltipProvider>
+  );
+}
+
+function nameInUrl(id: string, page: number, history: "push" | "replace" | "none") {
+  if (history === "none") return;
+  const url = `${window.location.pathname}?plan=${encodeURIComponent(id)}&sheet=${page}`;
+  if (history === "push") window.history.pushState(null, "", url);
+  else window.history.replaceState(null, "", url);
+}
+
+/** The paginator between a dossier's sheets, in page order (pmr-checker's levels). A
+ *  plan annexe is dimmed and says why on hover; a sheet already checked opens at once. */
+function Sheets({ sheets, open, disabled, read, onOpen }: {
+  sheets: Sheet[];
+  open: number | null;
+  disabled: boolean;
+  read: (sheet: Sheet) => boolean;
+  onOpen: (sheet: Sheet) => void;
+}) {
+  const at = sheets.findIndex((s) => s.page === open);
+  return (
+    <nav className="sheets flex items-center gap-1" aria-label="Sheets of the dossier">
+      <Key className="mr-1 hidden md:block">Sheet</Key>
+      <Button variant="ghost" size="icon-xs" aria-label="Previous sheet" disabled={disabled || at <= 0}
+              onClick={() => onOpen(sheets[at - 1])}><ChevronLeft /></Button>
+      {sheets.map((s, i) => (
+        <Tooltip key={s.page}>
+          <TooltipTrigger asChild>
+            <Button size="icon-xs" variant="ghost" disabled={disabled}
+                    className={cn("font-mono text-xs text-muted-foreground",
+                                  i === at && "bg-accent text-foreground ring-1 ring-primary",
+                                  s.annexe && "opacity-40",
+                                  read(s) && i !== at && "text-foreground")}
+                    aria-label={s.annexe ? `${s.name}, not checked` : s.name}
+                    aria-current={i === at ? "page" : undefined}
+                    onClick={() => onOpen(s)}>
+              {i + 1}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">
+            <p className="font-medium">{s.name}</p>
+            {s.annexe ? "A plan annexe: listed, never checked." : read(s) ? "Checked" : "Checked when opened"}
+          </TooltipContent>
+        </Tooltip>
+      ))}
+      <Button variant="ghost" size="icon-xs" aria-label="Next sheet"
+              disabled={disabled || at < 0 || at >= sheets.length - 1}
+              onClick={() => onOpen(sheets[at + 1])}><ChevronRight /></Button>
+    </nav>
   );
 }
