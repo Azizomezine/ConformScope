@@ -157,7 +157,7 @@
 .brandMark::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--navy, #1d3557); }
 .topnav { display: flex; gap: 22px; margin-right: auto; font-size: 15px; font-weight: 500; color: var(--ink-2); }
 .topnav a:hover { color: var(--navy); }
-.navCta { font-weight: 700; font-size: 15px; color: #fff; background: var(--navy); padding: 9px 16px; border-radius: 10px; box-shadow: 0 6px 18px rgba(29, 53, 87, 0.25); }
+.navCta { display: inline-flex; align-items: center; min-height: 40px; font-weight: 700; font-size: 15px; color: #fff; background: var(--navy); padding: 9px 18px; border-radius: 10px; box-shadow: 0 6px 18px rgba(29, 53, 87, 0.25); touch-action: manipulation; }
 .navLink { font-weight: 600; color: #1d3557; border: 1px solid #1d3557; padding: 7px 12px; border-radius: 8px; background: #fff; }
 .checkHeader { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
 
@@ -180,9 +180,9 @@
 .badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; color: var(--sea); background: rgba(255, 255, 255, 0.75); border: 1px solid rgba(42, 111, 151, 0.25); }
 .badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(46, 125, 50, 0.15); }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; }
-.cta { display: inline-block; background: var(--navy); color: #fff !important; font-weight: 700; padding: 13px 20px; border-radius: 10px; box-shadow: 0 10px 24px rgba(29, 53, 87, 0.28); transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out); }
+.cta { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; background: var(--navy); color: #fff !important; font-weight: 700; font-size: 16px; padding: 13px 22px; border-radius: 12px; box-shadow: 0 10px 24px rgba(29, 53, 87, 0.28); transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out); touch-action: manipulation; }
 .cta:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(29, 53, 87, 0.32); }
-.ctaGhost { font: inherit; font-weight: 700; color: var(--ink); background: rgba(255, 255, 255, 0.85); border: 1px solid var(--line); padding: 12px 20px; border-radius: 10px; cursor: pointer; }
+.ctaGhost { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; font: inherit; font-weight: 700; font-size: 16px; color: var(--ink); background: rgba(255, 255, 255, 0.85); border: 1px solid var(--line); padding: 12px 22px; border-radius: 12px; cursor: pointer; touch-action: manipulation; }
 .ctaGhost:hover { border-color: var(--navy); }
 .exampleNote { font-size: 13px !important; color: var(--muted, #6b7686) !important; }
 .scrollHint { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--muted); }
@@ -219,7 +219,7 @@
 .railLine { position: relative; width: 2px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .railFill { position: absolute; inset: 0; background: linear-gradient(180deg, var(--navy), var(--sky)); transform: scaleY(var(--story)); transform-origin: top; }
 .rail ol { list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.rail button { display: flex; align-items: center; gap: 10px; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink-2); background: none; border: 0; padding: 5px 2px; cursor: pointer; }
+.rail button { display: flex; align-items: center; gap: 10px; min-height: 34px; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink-2); background: none; border: 0; border-radius: 8px; padding: 7px 6px; cursor: pointer; touch-action: manipulation; }
 .rail button:hover { color: var(--navy); }
 .rail button i { width: 8px; height: 8px; border-radius: 50%; border: 2px solid currentColor; transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s; }
 .rail button[data-state="done"] i { background: currentColor; }
@@ -259,7 +259,7 @@
   background: radial-gradient(ellipse 60% 80% at 80% 0%, rgba(78, 168, 222, 0.45), transparent 60%), linear-gradient(135deg, #14213d, #1d3557 55%, #2a6f97); }
 .ctaBand h2 { color: #fff; }
 .ctaBand p { max-width: 560px; line-height: 1.6; color: rgba(255, 255, 255, 0.82); font-size: 17px; }
-.ctaLight { margin-top: 8px; background: #fff; color: var(--navy); font-weight: 800; padding: 13px 22px; border-radius: 10px; }
+.ctaLight { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; margin-top: 8px; background: #fff; color: var(--navy); font-weight: 800; font-size: 16px; padding: 13px 24px; border-radius: 12px; touch-action: manipulation; }
 .footer { border-top: 1px solid var(--line); padding: 28px 0 36px; color: var(--muted); font-size: 14px; background: #fff; }
 .footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 
@@ -318,6 +318,8 @@
 :global(:root[data-theme="dark"]) .intro { background: rgba(13, 22, 33, 0.92); }
 /* Press feedback on pointer-down (not release); hover motion gated to fine pointers. */
 .cta:active, .ctaGhost:active, .navCta:active, .ctaLight:active { transform: scale(0.97); transition-duration: 100ms; }
+.cta, .ctaGhost, .navCta, .ctaLight, .topnav a { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.topnav a { display: inline-flex; align-items: center; min-height: 40px; padding: 4px 2px; touch-action: manipulation; }
 .rail button { transition: color 150ms var(--ease-out), transform 100ms var(--ease-out); }
 .rail button:active { transform: scale(0.97); }
 @media (hover: hover) and (pointer: fine) {

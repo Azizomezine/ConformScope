@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo_Narrow, Geist, Geist_Mono, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { PreferencesProvider } from "./preferences";
@@ -25,6 +25,16 @@ const body = IBM_Plex_Sans({
 const dim = IBM_Plex_Mono({
   subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-dim",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover" as const,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f7fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d1621" },
+  ],
+};
 
 export const metadata: Metadata = {
   title: "ConformScope",

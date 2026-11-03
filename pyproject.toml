@@ -17,7 +17,9 @@ dependencies = [
     "pymupdf>=2.0",
     "python-dotenv>=1.2.4",
     "python-multipart>=0.0.32",
+    "reportlab>=5.1.0",
     "uvicorn>=0.54.0",
+    "vercel-blob>=0.5.1",
 ]
 
 [project.scripts]

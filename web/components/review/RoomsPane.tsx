@@ -97,7 +97,7 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
             <button key={f.value} type="button" role="radio" aria-checked={filter === f.value}
                     onClick={() => setFilter(f.value)}
                     className={cn(
-                      "inline-flex h-6 items-center gap-1 rounded-md border border-border px-2 text-xs text-muted-foreground outline-none transition-colors",
+                      "inline-flex h-8 cursor-pointer touch-manipulation items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground outline-none transition-[color,background-color,border-color,transform] duration-150 select-none active:scale-[0.96]",
                       "hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50",
                       "aria-checked:border-foreground/70 aria-checked:bg-secondary aria-checked:text-foreground")}>
               {filter === f.value && <Check aria-hidden className="size-3" />}
@@ -170,7 +170,7 @@ function RoomCard({ room, index, active, onPick, children }: {
                            active ? "border-primary/70 shadow-[0_0_0_1px_var(--primary)]" : "border-secondary")}>
       <button type="button" onClick={onPick} aria-expanded={active}
               className={cn(
-                "entry grid w-full grid-cols-[1.75rem_1fr_auto] items-start gap-x-2 gap-y-1 px-3 py-2.5 text-left outline-none transition-colors",
+                "entry grid min-h-11 w-full cursor-pointer touch-manipulation grid-cols-[1.75rem_1fr_auto] items-start gap-x-2 gap-y-1 px-3 py-2.5 text-left outline-none transition-colors select-none active:bg-accent",
                 "hover:bg-secondary/70 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50",
                 active && "active bg-accent hover:bg-accent")}>
         <span className="no pt-px font-mono text-xs tabular-nums text-muted-foreground">{index + 1}</span>

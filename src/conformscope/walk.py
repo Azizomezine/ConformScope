@@ -58,6 +58,23 @@ def _fallback(rooms: list[dict]) -> int:
     return 0
 
 
+def widen(doors: list[dict], indices: list[int]) -> list[dict]:
+    """The doors as they would be if each one listed were widened to the width it needs: a
+    **proposal**, a what-if on paper. The doors as drawn are left untouched, and nothing is
+    stored -- a proposal changes the design, never how the plan was read."""
+    out = [dict(door) for door in doors]
+    for i in indices:
+        if not 0 <= i < len(out) or out[i].get("required_m") is None:
+            raise ValueError(f"No checked door {i} on this sheet")
+        door = out[i]
+        if door.get("ok") is True:
+            continue
+        needed = door["required_m"]
+        door.update(drawn_m=door["width_m"], width_m=needed, ok=True, proposed=True,
+                    verdict=f"Proposed: widened from {door['width_m']:.2f} m to {needed:.2f} m")
+    return out
+
+
 def walk(rooms: list[dict], doors: list[dict], start: int | None = None) -> dict:
     """The walk from `start` (a room index), or from the entrance by default."""
     if not rooms:

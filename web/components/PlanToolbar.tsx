@@ -152,7 +152,7 @@ export function IconButton({ label, icon: Icon, onClick, pressed, disabled, refu
             aria-disabled={refused || undefined}
             aria-describedby={describedBy}
             className={cn(
-              "inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-120 [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] active:scale-[0.94] active:duration-100 motion-reduce:transition-none motion-reduce:active:scale-100",
+              "inline-flex size-9 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-lg text-muted-foreground transition-[color,background-color,transform] duration-120 [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] select-none active:scale-[0.94] active:duration-100 motion-reduce:transition-none motion-reduce:active:scale-100",
               "hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40",
               "aria-pressed:bg-[var(--cobalt-soft)] aria-pressed:text-[var(--cobalt)]",
               "aria-disabled:cursor-not-allowed aria-disabled:opacity-40",

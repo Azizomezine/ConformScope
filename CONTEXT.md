@@ -104,6 +104,13 @@ _Avoid_: uncertain, suspicious, low-confidence verdict
 
 ### Auditing
 
+**Proposal**:
+A change to the design tried on paper, such as widening a narrow **door** to the width it
+needs, so the **walk** can be played again as if it were built that way. It answers "what
+would fix this?", where a **correction** answers "was this read right?". It is never stored
+and never changes a verdict: the report still judges the plan as drawn.
+_Avoid_: fix (for the action), what-if, simulation
+
 **Correction**:
 A change an auditor makes to how a plan was read (merging a nook into a room, drawing a
 missing wall, removing a **fixture** or a **door** that is not there), kept with the plan and
