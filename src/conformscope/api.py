@@ -28,7 +28,8 @@ from pathlib import Path
 
 import pymupdf  # type: ignore[import-untyped]
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
+from PIL import Image
 
 from conformscope.client import MissingKeyError, make_client, make_verifier_client
 from conformscope.explain import explain_sheet
@@ -43,10 +44,11 @@ from conformscope.corrections import (
 )
 from conformscope.labels import RoomLabel, RoomReading, read_rooms
 from conformscope.plan import IMAGE_SUFFIXES, load_plan
+from conformscope.report import SheetReport, build as build_report
 from conformscope.rooms import measure_rooms
 from conformscope.sheets import read_sheets
 from conformscope.turning import check_turning
-from conformscope.walk import walk
+from conformscope.walk import walk, widen
 
 PLAN_ID = re.compile(r"[0-9a-f]{32}")
 ANNEXE_REASON = "Not checked: a plan annexe (masse, situation, toiture or combles)"
@@ -282,19 +284,57 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
     @app.get("/plans/{plan_id}/sheets/{page}/walk")
     def get_walk(plan_id: str, page: int, request: Request) -> dict:
         """Walk the stored sheet again, from a room the auditor clicked (issue #14). Never
-        measures again and never asks a model."""
+        measures again and never asks a model.
+
+        `widen=2,5` walks it as if those doors were widened to the width they need: a
+        proposal, answered at once and never stored."""
         _, own, _ = sheet_of(plan_id, page)
         stored = own / "reading.json"
         if not stored.exists():
             raise HTTPException(409, "Open the sheet before walking it")
         body = json.loads(stored.read_text(encoding="utf-8"))
         rooms, doors = body.get("rooms", []), body.get("doors", [])
+        proposed: list[int] = []
+        asked = request.query_params.get("widen")
+        if asked:
+            parts = asked.split(",")
+            if not all(part.isdigit() for part in parts):
+                raise HTTPException(400, f"Bad doors to widen: {asked}")
+            proposed = sorted({int(part) for part in parts})
+            try:
+                doors = widen(doors, proposed)
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from error
         start = request.query_params.get("from")
         if start is not None:
             if not start.isdigit() or int(start) >= len(rooms):
                 raise HTTPException(400, f"No room {start} on this sheet")
-            return walk(rooms, doors, int(start))
-        return walk(rooms, doors)
+            result = walk(rooms, doors, int(start))
+        else:
+            result = walk(rooms, doors)
+        return result | {"proposed": proposed} if proposed else result
+
+    @app.get("/plans/{plan_id}/report.pdf")
+    def get_report(plan_id: str, request: Request) -> Response:
+        """The dossier's PDF report, built from the stored readings of every sheet opened
+        so far: never measures again and never asks a model. `name` titles it (the file
+        the auditor uploaded); a sheet never opened is listed as such."""
+        folder = dossier_dir(plan_id)
+        sheets = dossier(folder)["sheets"]
+        parts: list[SheetReport] = []
+        for sheet in sheets:
+            own = folder / "sheets" / str(sheet["page"])
+            stored = own / "reading.json"
+            body = json.loads(stored.read_text(encoding="utf-8")) if stored.exists() else None
+            image = Image.open(own / "plan.png") if body and (own / "plan.png").exists() else None
+            parts.append(SheetReport(sheet, body, image))
+        if not any(part.body and part.body.get("checked") for part in parts):
+            raise HTTPException(409, "Open and check a sheet before asking for its report")
+        title = request.query_params.get("name") or "Plan dossier"
+        pdf = build_report(title, parts)
+        stem = re.sub(r"[^\w.-]+", "-", Path(title).stem).strip("-") or "dossier"
+        return Response(pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="conformscope-report-{stem}.pdf"'})
 
     @app.get("/plans/{plan_id}/sheets/{page}/image")
     def get_sheet_image(plan_id: str, page: int) -> FileResponse:

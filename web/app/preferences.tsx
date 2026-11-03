@@ -100,7 +100,7 @@ export function PreferenceControls({ className }: { className?: string }) {
   const { locale, theme, setLocale, setTheme, t } = usePreferences();
   const seg = (active: boolean) =>
     cn(
-      "px-2 py-1 text-xs font-semibold transition-[color,background-color,transform] duration-150 active:scale-[0.96]",
+      "min-h-8 cursor-pointer touch-manipulation px-2.5 py-1.5 text-xs font-semibold transition-[color,background-color,transform] duration-150 select-none active:scale-[0.96]",
       active ? "bg-[var(--navy,#1d3557)] text-white shadow-sm" : "text-current opacity-60 hover:opacity-100",
     );
   return (
@@ -117,7 +117,7 @@ export function PreferenceControls({ className }: { className?: string }) {
               aria-label={theme === "dark" ? t("pref.toLight") : t("pref.toDark")}
               title={theme === "dark" ? t("pref.toLight") : t("pref.toDark")}
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="grid size-8 place-items-center rounded-full border border-current/25 bg-white/40 backdrop-blur-sm transition-[background-color,transform] duration-150 hover:bg-white/60 active:scale-[0.94] dark:bg-white/10 [&_svg]:size-4">
+              className="grid size-9 cursor-pointer touch-manipulation place-items-center rounded-full border border-current/25 bg-white/40 backdrop-blur-sm transition-[background-color,transform] duration-150 select-none hover:bg-white/60 active:scale-[0.94] dark:bg-white/10 [&_svg]:size-4">
         {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
       </button>
     </div>

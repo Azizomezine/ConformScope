@@ -1,6 +1,8 @@
 import math
 
-from conformscope.walk import walk
+import pytest
+
+from conformscope.walk import walk, widen
 
 
 def _room(name, x, conforme=True, room_type="bedroom"):
@@ -109,3 +111,35 @@ def test_a_plan_with_no_rooms_has_an_empty_walk():
 
     assert result["route"] == [] and result["reached"] == []
     assert result["verdict"] == "No rooms to walk through"
+
+
+# --- proposals: what if this door were widened? -----------------------------------------
+
+NARROW = [ENTRANCE, _door(0, 1, 150), _door(1, 2, 250, ok=False, width=0.70)]
+
+
+def test_widening_the_narrow_door_lets_the_wheelchair_through():
+    result = walk(ROOMS, widen(NARROW, [2]))
+
+    assert result["reached"] == [0, 1, 2] and result["stops"] == []
+
+
+def test_a_widened_door_is_marked_as_proposed_at_its_required_width():
+    door = widen(NARROW, [2])[2]
+
+    assert door["ok"] is True and door["proposed"] is True
+    assert door["width_m"] == 0.80
+    assert door["drawn_m"] == 0.70  # what the plan shows is kept beside the proposal
+
+
+def test_widening_leaves_the_doors_as_drawn_untouched():
+    widen(NARROW, [2])
+
+    assert NARROW[2]["ok"] is False and "proposed" not in NARROW[2]
+
+
+def test_a_proposal_on_a_door_that_is_not_there_or_not_checked_is_refused():
+    with pytest.raises(ValueError):
+        widen(NARROW, [9])
+    with pytest.raises(ValueError):
+        widen([_door(None, None, 50, ok=None) | {"role": "communs", "required_m": None}], [0])

@@ -412,6 +412,45 @@ def test_sample_plan_walked_from_a_room_reaches_its_neighbours(make_api):
     assert walked["route"][0]["event"] == "start"
 
 
+def _sheet_with_a_narrow_door(api, tmp_path):
+    """Open a sheet, then give its stored reading two rooms and a narrow door between them."""
+    plan_id, _ = _open(api, _png_upload())
+    stored = tmp_path / plan_id / "sheets" / "0" / "reading.json"
+    body = __import__("json").loads(stored.read_text(encoding="utf-8"))
+    square = lambda x: [[x - 40, 60], [x + 40, 60], [x + 40, 140], [x - 40, 140]]
+    body["rooms"] = [{"name": "Hall", "room_type": "entrance", "conforme": True, "circle_px": [100, 100],
+                      "polygon_px": square(100)},
+                     {"name": "Bedroom", "room_type": "bedroom", "conforme": True, "circle_px": [200, 100],
+                      "polygon_px": square(200)}]
+    body["doors"] = [{"rooms": [0, 1], "role": "interior", "width_m": 0.70, "measured_m": 0.70,
+                      "required_m": 0.80, "ok": False, "verdict": "Interior door · 0.70 m · needs 0.80 m",
+                      "doorway_px": [[150, 80], [150, 120]], "swing_px": [160, 100]}]
+    stored.write_text(__import__("json").dumps(body), encoding="utf-8")
+    return plan_id, stored
+
+
+def test_a_proposal_walks_the_sheet_as_if_the_door_were_widened_and_saves_nothing(make_api, tmp_path):
+    api = make_api()
+    plan_id, stored = _sheet_with_a_narrow_door(api, tmp_path)
+    kept = stored.read_text(encoding="utf-8")
+
+    as_drawn = api.get(f"/plans/{plan_id}/sheets/0/walk", params={"from": 0}).json()
+    proposed = api.get(f"/plans/{plan_id}/sheets/0/walk", params={"from": 0, "widen": "0"}).json()
+
+    assert as_drawn["reached"] == [0] and as_drawn.get("proposed", []) == []
+    assert proposed["reached"] == [0, 1] and proposed["stops"] == []
+    assert proposed["proposed"] == [0]
+    assert stored.read_text(encoding="utf-8") == kept  # a proposal is never a correction
+
+
+def test_a_proposal_on_a_door_that_is_not_there_is_a_400(make_api, tmp_path):
+    api = make_api()
+    plan_id, _ = _sheet_with_a_narrow_door(api, tmp_path)
+
+    assert api.get(f"/plans/{plan_id}/sheets/0/walk", params={"widen": "5"}).status_code == 400
+    assert api.get(f"/plans/{plan_id}/sheets/0/walk", params={"widen": "x"}).status_code == 400
+
+
 # --- explain + verify (issue #16) ------------------------------------------------------
 
 import json as _json

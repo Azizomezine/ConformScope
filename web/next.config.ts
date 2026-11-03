@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
     proxyTimeout: 120_000,
   },
   rewrites() {
+    // On Vercel, vercel.json sends /api/* to the engine service itself.
+    if (process.env.VERCEL) return [];
     return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }];
   },
 };

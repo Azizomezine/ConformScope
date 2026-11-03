@@ -1,0 +1,19 @@
+# What `vercel deploy` from this machine never uploads.
+.venv/
+.data/
+.claude/
+.agents/
+.env
+.env.*
+!.env.example
+**/node_modules/
+web/.next/
+__pycache__/
+*.pyc
+*.log
+pytest-of-*/
+.pytest_cache/
+samples/private/
+/*.pdfpytest-of-azizo
+pytest-of-azizo/
+.uv-cache/
