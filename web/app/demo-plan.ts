@@ -4,6 +4,8 @@
 
 export type DemoRoom = {
   name: string;
+  nameFr: string;
+  verdictFr: string;
   roomType: string;
   color: string;
   polygon: [number, number][];
@@ -19,48 +21,76 @@ export const TURNING_DIAMETER_M = 1.5;
 
 export const DEMO_ROOMS: DemoRoom[] = [
   {
-    name: "Séjour", roomType: "living", color: "#f4a261",
+    name: "Living room", nameFr: "Séjour", verdictFr: "Conforme PMR", roomType: "living", color: "#f4a261",
     polygon: [[0, 0], [5.6, 0], [5.6, 4.2], [0, 4.2]],
     areaM2: 23.5,
     circle: { center: [2.8, 2.1], diameterM: 1.5, conforme: true },
     verdict: "Conforme PMR",
   },
   {
-    name: "Cuisine", roomType: "kitchen", color: "#e9c46a",
+    name: "Kitchen", nameFr: "Cuisine", verdictFr: "Conforme PMR", roomType: "kitchen", color: "#e9c46a",
     polygon: [[5.6, 0], [10, 0], [10, 2.6], [5.6, 2.6]],
     areaM2: 11.4,
     circle: { center: [7.8, 1.3], diameterM: 1.5, conforme: true },
     verdict: "Conforme PMR",
   },
   {
-    name: "Chambre", roomType: "bedroom", color: "#8ab17d",
+    name: "Bedroom", nameFr: "Chambre", verdictFr: "Conforme PMR", roomType: "bedroom", color: "#8ab17d",
     polygon: [[0, 4.2], [4.2, 4.2], [4.2, 7], [0, 7]],
     areaM2: 11.8,
     circle: { center: [2.1, 5.6], diameterM: 1.5, conforme: true },
     verdict: "Conforme PMR",
   },
   {
-    name: "Salle de bain", roomType: "bathroom", color: "#4ea8de",
+    name: "Bathroom", nameFr: "Salle de bain", verdictFr: "Conforme PMR", roomType: "bathroom", color: "#4ea8de",
     polygon: [[4.2, 4.2], [7.2, 4.2], [7.2, 7], [4.2, 7]],
     areaM2: 8.4,
     circle: { center: [5.7, 5.6], diameterM: 1.5, conforme: true },
     verdict: "Conforme PMR",
   },
   {
-    name: "WC", roomType: "wc", color: "#2a6f97",
+    name: "WC", nameFr: "WC", verdictFr: "Non conforme PMR (max Ø1,40 m)", roomType: "wc", color: "#2a6f97",
     polygon: [[7.2, 4.2], [8.6, 4.2], [8.6, 7], [7.2, 7]],
     areaM2: 3.9,
     circle: { center: [7.9, 5.6], diameterM: 1.4, conforme: false },
     verdict: "Non conforme PMR (max Ø1.40 m)",
   },
   {
-    name: "Couloir", roomType: "corridor", color: "#b5a1d9",
+    name: "Corridor", nameFr: "Couloir", verdictFr: "Conforme PMR", roomType: "corridor", color: "#b5a1d9",
     polygon: [[5.6, 2.6], [10, 2.6], [10, 7], [8.6, 7], [8.6, 4.2], [5.6, 4.2]],
     areaM2: 11.0,
     circle: { center: [7.8, 3.4], diameterM: 1.5, conforme: true },
     verdict: "Conforme PMR",
   },
 ];
+
+export const DEMO_STEPS_EN = [
+  {
+    eyebrow: "Reading", title: "Reading the plan",
+    text: "Muse Spark reads the plan's labels. Dimensions become metres, the plan stays flat.",
+    tags: ["2D plan", "Labels", "Metres"],
+  },
+  {
+    eyebrow: "Rooms", title: "Each room is cut out",
+    text: "SAM 3.1 cuts out the rooms on the image. Each one gets its type and its area.",
+    tags: ["Segmentation", "Room type", "Area m²"],
+  },
+  {
+    eyebrow: "Volume", title: "The walls go up",
+    text: "Each room becomes a volume. You see the home, not just the drawing.",
+    tags: ["Real-time 3D", "Walls"],
+  },
+  {
+    eyebrow: "Circle", title: "A Ø1.50 m circle has to turn",
+    text: "Geometry looks for the largest free circle in each room. No verdict comes from the model.",
+    tags: ["Ø1.50 m", "Geometry"],
+  },
+  {
+    eyebrow: "Verdict", title: "The WC does not fit",
+    text: "Green: a wheelchair can turn around. Red: the WC tops out at Ø1.40 m. You see it before signing.",
+    tags: ["Compliant", "Not compliant"],
+  },
+] as const;
 
 export const DEMO_STEPS = [
   {

@@ -7,12 +7,13 @@ import {
   type Door, type Fixture, type PlanReading, type Pt, type Room, type WalkStep,
 } from "@/lib/plan";
 import {
-  LABELS, MIN_POINTS, MeasureKind, Measurement, POINTS_TO_CLOSE, constrain, dist,
+  labelsFor, MIN_POINTS, MeasureKind, Measurement, POINTS_TO_CLOSE, constrain, dist,
   outline, reading as readingOf,
 } from "@/lib/measure";
 import {
   SPRING_MOMENTUM, SPRING_UI, clamp, projectMomentum, rubberClamp, settled, stepSpring,
 } from "@/lib/spring";
+import { usePreferences } from "@/app/preferences";
 
 /** How far a press must travel before it is a pan rather than a click. */
 const DRAG_SLOP_PX = 4;
@@ -21,9 +22,9 @@ const DRAG_SLOP_PX = 4;
  *  perimeter on it. */
 const CLOSE_PX = 8;
 
-const ASSUMED_SCALE_REASON = "No dimension measured: the reference circle would be the wrong size.";
-const ASSUMED_SCALE_MEASURE = "No dimension measured: a measurement on this assumed scale would be wrong.";
-const UNREAD_SHEET_MEASURE = "Sheet not checked yet: no scale to measure with.";
+const ASSUMED_SCALE_REASON = "view.assumedRef" as const;
+const ASSUMED_SCALE_MEASURE = "view.assumedMeasure" as const;
+const UNREAD_SHEET_MEASURE = "view.unreadMeasure" as const;
 
 const isMeasure = (t: Tool): t is MeasureKind => t !== "select" && t !== "pan";
 
@@ -164,13 +165,15 @@ export default function PlanViewer({
     return () => observer.disconnect();
   }, []);
 
+  const { locale, t } = usePreferences();
+  const LABELS = labelsFor(locale);
   const metre = reading?.px_per_m ?? null;
   const measured = metre !== null && !!reading?.checked;
   // Its one claim is its size. On an assumed scale that claim is a guess, and the eye
   // trusts a drawn circle — so it is refused rather than shown dashed.
   const referenceTrusted = measured && reading?.scale_source !== "assumed";
-  const measureRefusal = !measured ? UNREAD_SHEET_MEASURE
-    : !referenceTrusted ? ASSUMED_SCALE_MEASURE : null;
+  const measureRefusal = !measured ? t(UNREAD_SHEET_MEASURE)
+    : !referenceTrusted ? t(ASSUMED_SCALE_MEASURE) : null;
 
   // React's onWheel is passive, so it cannot preventDefault — the wheel would leak
   // through to the browser's own page zoom. Bind it natively instead.
@@ -469,15 +472,15 @@ export default function PlanViewer({
       </svg>
 
       {measured && metre !== null && <>
-        <div className="reference" role="group" aria-label="Reference circle">
-          {!referenceTrusted && <span id={refusedId} className="reason">{ASSUMED_SCALE_REASON}</span>}
+        <div className="reference" role="group" aria-label={t("view.referenceAria")}>
+          {!referenceTrusted && <span id={refusedId} className="reason">{t(ASSUMED_SCALE_REASON)}</span>}
           {/* aria-disabled, not disabled: a disabled button leaves the tab order, and
               with it the only place the refusal is explained. */}
           <button type="button" aria-pressed={reference != null}
                   aria-disabled={!referenceTrusted || undefined}
                   aria-describedby={referenceTrusted ? undefined : refusedId}
                   onClick={toggleReference}>
-            Ø{REQUIRED_DIAMETER_M.toFixed(2)} m reference circle
+            {t("view.reference", { size: REQUIRED_DIAMETER_M.toFixed(2) })}
           </button>
         </div>
 
@@ -490,14 +493,14 @@ export default function PlanViewer({
       </>}
 
       {(measures.length > 0 || draft) && metre !== null && (
-        <section className="cotes" aria-label="Measurements">
+        <section className="cotes" aria-label={t("view.measurements")}>
           <ol>
             {measures.map((m) => (
               <li key={m.id}>
                 <span>{LABELS[m.kind]}</span>
                 <output>{readingOf(m, metre)}</output>
                 <button type="button"
-                        aria-label={`Remove ${LABELS[m.kind].toLowerCase()} ${readingOf(m, metre)}`}
+                        aria-label={t("view.removeMeasure", { label: LABELS[m.kind].toLowerCase(), value: readingOf(m, metre) })}
                         onClick={() => setMeasures((ms) => ms.filter((x) => x.id !== m.id))}>×</button>
               </li>
             ))}
@@ -577,6 +580,7 @@ function RoomShape({ room, index, metre, unit, k, active, strikeIndex, onPick }:
   room: Room; index: number; metre: number | null; unit: number; k: number;
   active: boolean; strikeIndex: number; onPick: () => void;
 }) {
+  const { locale } = usePreferences();
   const verdict = room.conforme === null ? "" : room.conforme ? "conforme" : "non-conforme";
   const radius = room.circle_m !== null && metre ? (room.circle_m / 2) * metre : null;
   const circumference = radius ? 2 * Math.PI * radius : 0;
@@ -585,7 +589,7 @@ function RoomShape({ room, index, metre, unit, k, active, strikeIndex, onPick }:
 
   return (
     <g className={`room${active ? " active" : ""}`} onClick={onPick}>
-      <title>{`${roomLabel(room, index)} · ${typeLabel(room)}${room.verdict ? ` · ${room.verdict}` : ""}`}</title>
+      <title>{`${roomLabel(room, index, locale)} · ${typeLabel(room, locale)}${room.verdict ? ` · ${room.verdict}` : ""}`}</title>
       <polygon points={room.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
                className={`outline ${verdict}${flagged ? " flagged" : ""}`} />
       {radius && room.circle_px && (
@@ -630,7 +634,7 @@ function FixtureShape({ fixture }: { fixture: Fixture }) {
 
 function DoorShape({ door, rooms }: { door: Door; rooms: Room[] }) {
   const [[ax, ay], [bx, by]] = door.doorway_px;
-  const status = door.ok === null ? "unchecked" : door.ok ? "ok" : "bad";
+  const status = door.proposed ? "proposed" : door.ok === null ? "unchecked" : door.ok ? "ok" : "bad";
   return (
     <line className={`door ${status}`} x1={ax} y1={ay} x2={bx} y2={by}>
       <title>{`${doorSides(door, rooms)} · ${door.verdict}`}</title>

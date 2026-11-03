@@ -297,6 +297,25 @@
 .checkIntro h1 { font-size: clamp(30px, 4.5vw, 44px); line-height: 1.05; letter-spacing: -0.03em; color: var(--ink); }
 .checkIntro p { font-size: 17px; line-height: 1.6; color: var(--ink-2); }
 .checkCard { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 24px; margin-bottom: 64px; }
+/* Night mode: same identity, dark paper. Navy stays navy for CTAs; text that
+   used it as a colour moves to sky. */
+:global(:root[data-theme="dark"]) .landing { --ink: #edf2f8; --ink-2: #c2cedd; --muted: #93a5ba; --sea: #6db3dd; --line: #26394c; --paper: #0d1621; --stage: #0a121c; }
+:global(:root[data-theme="dark"]) .topbar { background: rgba(13, 22, 33, 0.78); border-bottom-color: rgba(255, 255, 255, 0.08); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+:global(:root[data-theme="dark"]) .veil { background: linear-gradient(90deg, rgba(10, 18, 28, 0.92) 0%, rgba(10, 18, 28, 0.55) 30%, rgba(10, 18, 28, 0) 52%); }
+:global(:root[data-theme="dark"]) .badge { background: rgba(16, 28, 39, 0.82); }
+:global(:root[data-theme="dark"]) .ctaGhost { background: rgba(16, 28, 39, 0.85); color: var(--ink); }
+:global(:root[data-theme="dark"]) .card { background: rgba(16, 28, 39, 0.8); border-color: rgba(255, 255, 255, 0.14); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); }
+:global(:root[data-theme="dark"]) .rail { background: rgba(16, 28, 39, 0.78); border-color: rgba(255, 255, 255, 0.14); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4); }
+:global(:root[data-theme="dark"]) .band { background: #0f1a28; }
+:global(:root[data-theme="dark"]) .feature { background: #101c29; }
+:global(:root[data-theme="dark"]) .footer { background: #0f1a28; }
+:global(:root[data-theme="dark"]) .brand { color: var(--sky); }
+:global(:root[data-theme="dark"]) .counterWindow { color: var(--sky); }
+:global(:root[data-theme="dark"]) .stats dd { color: var(--sky); }
+:global(:root[data-theme="dark"]) .rail button[data-state="on"] { color: var(--sky); }
+:global(:root[data-theme="dark"]) .rail button[data-state="on"] i { background: var(--sky); border-color: var(--sky); }
+:global(:root[data-theme="dark"]) .checkCard { background: #101c29; }
+:global(:root[data-theme="dark"]) .intro { background: rgba(13, 22, 33, 0.92); }
 /* Press feedback on pointer-down (not release); hover motion gated to fine pointers. */
 .cta:active, .ctaGhost:active, .navCta:active, .ctaLight:active { transform: scale(0.97); transition-duration: 100ms; }
 .rail button { transition: color 150ms var(--ease-out), transform 100ms var(--ease-out); }

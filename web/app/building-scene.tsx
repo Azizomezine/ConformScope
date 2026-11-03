@@ -63,10 +63,12 @@ function dimensionBar(length: number, mat: THREE.Material) {
 }
 
 export function BuildingScene({
-  progressRef, reducedMotion, onFallback,
+  progressRef, reducedMotion, locale = "en", dark = false, onFallback,
 }: {
   progressRef: MutableRefObject<number>;
   reducedMotion: boolean;
+  locale?: string;
+  dark?: boolean;
   onFallback: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -96,7 +98,7 @@ export function BuildingScene({
     renderer.domElement.style.display = "block";
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xe8edf2);
+    scene.background = new THREE.Color(dark ? 0x0d1622 : 0xe8edf2);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.75));
@@ -113,7 +115,7 @@ export function BuildingScene({
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(60, 60),
-      new THREE.MeshStandardMaterial({ color: 0xd7dee5, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ color: dark ? 0x16222f : 0xd7dee5, roughness: 0.95 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.06;
@@ -180,7 +182,7 @@ export function BuildingScene({
       building.add(ring);
       circles.push({ disc, ring, mats: [cMat, rMat], ok });
 
-      const label = labelSprite(room.name);
+      const label = labelSprite(locale === "fr" ? room.nameFr : room.name);
       label.position.set(
         room.circle.center[0] - PLAN_W / 2,
         0.45,
@@ -337,7 +339,7 @@ export function BuildingScene({
       renderer.dispose();
       host.removeChild(renderer.domElement);
     };
-  }, [progressRef, reducedMotion]);
+  }, [progressRef, reducedMotion, locale, dark]);
 
-  return <div ref={hostRef} className="building-scene" aria-label="Plan 2D qui devient un bâtiment 3D" role="img" />;
+  return <div ref={hostRef} className="building-scene" aria-label={locale === "fr" ? "Plan 2D qui devient un bâtiment 3D" : "2D plan becoming a 3D building"} role="img" />;
 }

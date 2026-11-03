@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo_Narrow, Geist, Geist_Mono, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
+import { PreferencesProvider } from "./preferences";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,7 +35,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en"
           className={`${geistSans.variable} ${geistMono.variable} ${letters.variable} ${body.variable} ${dim.variable}`}>
-      <body>{children}</body>
+      <body>
+        {/* Stamp the stored language/theme on <html> before first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: "try{var t=localStorage.getItem('conforms-theme');if(t==='dark'){document.documentElement.dataset.theme='dark';document.documentElement.classList.add('dark')}var l=localStorage.getItem('conforms-locale');if(l==='fr'){document.documentElement.lang='fr';document.documentElement.dataset.locale='fr'}}catch(e){}" }} />
+        <PreferencesProvider>{children}</PreferencesProvider>
+      </body>
     </html>
   );
 }

@@ -4,26 +4,25 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import styles from "./page.module.css";
-import { DEMO_ROOMS, DEMO_STEPS, PLAN_H, PLAN_W, STORY_INTRO, TURNING_DIAMETER_M, chapterAt, chapterRange } from "./demo-plan";
+import { DEMO_ROOMS, DEMO_STEPS, DEMO_STEPS_EN, PLAN_H, PLAN_W, STORY_INTRO, TURNING_DIAMETER_M, chapterAt, chapterRange } from "./demo-plan";
+import { PreferenceControls, usePreferences } from "./preferences";
+import type { I18nKey } from "@/lib/i18n";
 
 const BuildingScene = dynamic(
   () => import("./building-scene").then((m) => m.BuildingScene),
-  { ssr: false, loading: () => <div className={styles.sceneFallback}>Chargement du plan…</div> },
+  { ssr: false, loading: () => <div className={styles.sceneFallback}>Loading the plan…</div> },
 );
 
-const FEATURES = [
-  { title: "Lecture du plan", text: "Muse Spark lit les étiquettes du plan et reconnaît le type de chaque pièce." },
-  { title: "Découpe des pièces", text: "SAM 3.1 découpe chaque pièce sur l'image du plan, recoin par recoin." },
-  { title: "Mesure en mètres", text: "Surfaces et dimensions sont calculées par la géométrie, jamais estimées par un modèle." },
-  { title: "Cercle de retournement", text: "Le plus grand cercle libre de chaque pièce est comparé au Ø1,50 m exigé." },
-  { title: "Corrections à la souris", text: "Un renfoncement mal découpé, un mur manquant : cliquez pour fusionner un recoin ou tracer le mur absent. Chaque correction est stockée avec le plan." },
-  { title: "Avant de signer", text: "Les logements sont approuvés sur papier. ConformScope montre qui ne pourra pas y entrer tant que c'est encore du papier." },
+const FEATURE_KEYS: [I18nKey, I18nKey][] = [
+  ["f1.title", "f1.text"], ["f2.title", "f2.text"], ["f3.title", "f3.text"],
+  ["f4.title", "f4.text"], ["f5.title", "f5.text"], ["f6.title", "f6.text"],
 ];
 
 function FallbackPlan() {
+  const { locale, t } = usePreferences();
   const sx = 100;
   return (
-    <svg viewBox={`0 0 ${PLAN_W * sx} ${PLAN_H * sx}`} className={styles.fallbackSvg} role="img" aria-label="Plan 2D de démonstration">
+    <svg viewBox={`0 0 ${PLAN_W * sx} ${PLAN_H * sx}`} className={styles.fallbackSvg} role="img" aria-label={t("scene.fallbackAria")}>
       {DEMO_ROOMS.map((room) => (
         <g key={room.name}>
           <polygon points={room.polygon.map(([x, y]) => `${x * sx},${y * sx}`).join(" ")}
@@ -32,23 +31,24 @@ function FallbackPlan() {
             fill={room.circle.conforme ? "#2e7d32" : "#c62828"} fillOpacity={0.25}
             stroke={room.circle.conforme ? "#2e7d32" : "#c62828"} strokeWidth={4} />
           <text x={room.circle.center[0] * sx} y={room.circle.center[1] * sx - (room.circle.diameterM / 2) * sx - 12}
-            textAnchor="middle" fontSize={26} fill="#1d3557" fontWeight={600}>{room.name}</text>
+            textAnchor="middle" fontSize={26} fill="#1d3557" fontWeight={600}>{locale === "fr" ? room.nameFr : room.name}</text>
         </g>
       ))}
     </svg>
   );
 }
 
-const fr = (v: number, decimals: number) =>
-  v.toLocaleString("fr-FR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+const fmt = (locale: string, v: number, decimals: number) =>
+  v.toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
 /** A number that counts up the first time it scrolls into view. */
 function CountUp({ value, decimals = 0, reduced }: { value: number; decimals?: number; reduced: boolean }) {
+  const { locale } = usePreferences();
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const el = ref.current;
-    if (!el || reduced) return;
-    el.textContent = fr(0, decimals);
+    if (!el || reduced) { if (el) el.textContent = fmt(locale, value, decimals); return; }
+    el.textContent = fmt(locale, 0, decimals);
     let raf = 0;
     const io = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;
@@ -56,18 +56,20 @@ function CountUp({ value, decimals = 0, reduced }: { value: number; decimals?: n
       const start = performance.now();
       const step = (now: number) => {
         const t = Math.min(1, (now - start) / 1200);
-        el.textContent = fr(value * (1 - (1 - t) ** 3), decimals);
+        el.textContent = fmt(locale, value * (1 - (1 - t) ** 3), decimals);
         if (t < 1) raf = requestAnimationFrame(step);
       };
       raf = requestAnimationFrame(step);
     }, { threshold: 0.6 });
     io.observe(el);
     return () => { io.disconnect(); cancelAnimationFrame(raf); };
-  }, [value, decimals, reduced]);
-  return <span ref={ref}>{fr(value, decimals)}</span>;
+  }, [value, decimals, reduced, locale]);
+  return <span ref={ref}>{fmt(locale, value, decimals)}</span>;
 }
 
 export default function Home() {
+  const { locale, theme, t } = usePreferences();
+  const steps = locale === "fr" ? DEMO_STEPS : DEMO_STEPS_EN;
   const trackRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef(0);
@@ -94,7 +96,6 @@ export default function Home() {
         const total = Math.max(1, rect.height - window.innerHeight);
         const p = Math.min(1, Math.max(0, -rect.top / total));
         progressRef.current = p;
-        // CSS reads these directly, so the hero fade and rail fill skip React renders.
         stageRef.current?.style.setProperty("--intro", String(Math.min(1, p / STORY_INTRO)));
         stageRef.current?.style.setProperty("--story", String(Math.max(0, (p - STORY_INTRO) / (1 - STORY_INTRO))));
         setStep(chapterAt(p));
@@ -118,6 +119,9 @@ export default function Home() {
   const shown = Math.max(0, step);
   const totalArea = DEMO_ROOMS.reduce((sum, r) => sum + r.areaM2, 0);
   const failing = DEMO_ROOMS.filter((r) => !r.circle.conforme).length;
+  const roomName = (r: (typeof DEMO_ROOMS)[number]) => (locale === "fr" ? r.nameFr : r.name);
+  const roomVerdict = (r: (typeof DEMO_ROOMS)[number]) =>
+    locale === "fr" ? r.verdictFr : r.circle.conforme ? t("verdict.pass") : t("verdict.failWc");
 
   return (
     <main className={styles.landing}>
@@ -125,10 +129,11 @@ export default function Home() {
         <div className={styles.topbarInner}>
           <span className={styles.brand}><span className={styles.brandMark} aria-hidden />ConformScope</span>
           <nav className={styles.topnav} aria-label="Sections">
-            <a href="#verdict">Verdict</a>
-            <a href="#fonctionnalites">Fonctionnalités</a>
+            <a href="#verdict">{t("nav.verdict")}</a>
+            <a href="#fonctionnalites">{t("nav.features")}</a>
           </nav>
-          <Link href="/check" className={styles.navCta}>Vérifier un plan</Link>
+          <PreferenceControls />
+          <Link href="/check" className={styles.navCta}>{t("nav.check")}</Link>
         </div>
       </header>
 
@@ -136,56 +141,52 @@ export default function Home() {
         <div ref={stageRef} className={styles.stage} data-reduced={reduced}>
           <div className={styles.sceneLayer}>
             {failed ? <FallbackPlan /> : (
-              <BuildingScene progressRef={progressRef} reducedMotion={reduced} onFallback={() => setFailed(true)} />
+              <BuildingScene progressRef={progressRef} reducedMotion={reduced} locale={locale} dark={theme === "dark"} onFallback={() => setFailed(true)} />
             )}
           </div>
           <div className={styles.veil} aria-hidden />
 
           <section className={styles.intro} data-gone={step >= 0} aria-labelledby="hero-title">
-            <span className={styles.badge} style={{ "--d": 0 } as CSSProperties}><i />Accessibilité PMR</span>
+            <span className={styles.badge} style={{ "--d": 0 } as CSSProperties}><i />{t("hero.badge")}</span>
             <h1 id="hero-title" style={{ "--d": 1 } as CSSProperties}>
-              Can a wheelchair <span className={styles.accent}>live in this home?</span>
+              {t("hero.title1")} <span className={styles.accent}>{t("hero.titleAccent")}</span>
             </h1>
-            <p style={{ "--d": 2 } as CSSProperties}>
-              ConformScope lit un plan, mesure chaque pièce en mètres, et vérifie si un cercle de retournement de Ø1,50 m y tient. Faites défiler : le plan devient le bâtiment.
-            </p>
+            <p style={{ "--d": 2 } as CSSProperties}>{t("hero.lede")}</p>
             <div className={styles.actions} style={{ "--d": 3 } as CSSProperties}>
-              <Link href="/check" className={styles.cta}>Essayer avec votre plan →</Link>
-              <button type="button" className={styles.ctaGhost} onClick={() => goTo(0)}>Voir comment ça marche</button>
+              <Link href="/check" className={styles.cta}>{t("hero.try")}</Link>
+              <button type="button" className={styles.ctaGhost} onClick={() => goTo(0)}>{t("hero.how")}</button>
             </div>
-            <p className={styles.exampleNote} style={{ "--d": 4 } as CSSProperties}>
-              Exemple — appartement de démonstration, pas un logement audité.
-            </p>
-            <span className={styles.scrollHint} aria-hidden style={{ "--d": 5 } as CSSProperties}><span />Défiler</span>
+            <p className={styles.exampleNote} style={{ "--d": 4 } as CSSProperties}>{t("hero.example")}</p>
+            <span className={styles.scrollHint} aria-hidden style={{ "--d": 5 } as CSSProperties}><span />{t("hero.scroll")}</span>
           </section>
 
           <div className={styles.card} data-on={step >= 0}>
             <div className={styles.counter} aria-hidden>
               <span className={styles.counterWindow}>
-                <span className={styles.counterTrack} style={{ transform: `translateY(-${(shown * 100) / DEMO_STEPS.length}%)` }}>
-                  {DEMO_STEPS.map((_, i) => <span key={i}>{String(i + 1).padStart(2, "0")}</span>)}
+                <span className={styles.counterTrack} style={{ transform: `translateY(-${(shown * 100) / steps.length}%)` }}>
+                  {steps.map((_, i) => <span key={i}>{String(i + 1).padStart(2, "0")}</span>)}
                 </span>
               </span>
-              <span className={styles.counterTotal}>/ {String(DEMO_STEPS.length).padStart(2, "0")}</span>
+              <span className={styles.counterTotal}>/ {String(steps.length).padStart(2, "0")}</span>
             </div>
             <div className={styles.captions} aria-live="polite">
-              {DEMO_STEPS.map((s, i) => (
+              {steps.map((s, i) => (
                 <article key={s.title} className={styles.caption} data-on={i === shown} aria-hidden={i !== shown}>
                   <span className={styles.eyebrow}>{s.eyebrow}</span>
                   <h3>{s.title}</h3>
                   <p>{s.text}</p>
-                  <ul className={styles.tags}>{s.tags.map((t) => <li key={t}>{t}</li>)}</ul>
+                  <ul className={styles.tags}>{s.tags.map((tag) => <li key={tag}>{tag}</li>)}</ul>
                 </article>
               ))}
             </div>
-            <span className={styles.dots}>{DEMO_STEPS.map((s, i) => <i key={s.title} data-on={i === shown} />)}</span>
-            {failed && <p className={styles.exampleNote}>Votre navigateur ne lance pas WebGL : voici le même plan en 2D.</p>}
+            <span className={styles.dots}>{steps.map((s, i) => <i key={s.title} data-on={i === shown} />)}</span>
+            {failed && <p className={styles.exampleNote}>{t("scene.webgl")}</p>}
           </div>
 
-          <nav className={styles.rail} data-on={step >= 0} aria-label="Étapes de la démonstration">
+          <nav className={styles.rail} data-on={step >= 0} aria-label={t("scene.railAria")}>
             <span className={styles.railLine}><span className={styles.railFill} /></span>
             <ol>
-              {DEMO_STEPS.map((s, i) => (
+              {steps.map((s, i) => (
                 <li key={s.title}>
                   <button type="button" onClick={() => goTo(i)} data-state={i === step ? "on" : i < step ? "done" : "todo"}
                     aria-current={i === step ? "step" : undefined}>
@@ -202,43 +203,43 @@ export default function Home() {
         <div className={styles.wrap}>
           <div className={styles.split}>
             <div className={styles.sectionHead}>
-              <span className={styles.eyebrow}>La démo, en chiffres</span>
-              <h2>Le verdict vient de la géométrie</h2>
-              <p>Muse Spark lit les étiquettes du plan et SAM 3.1 découpe les pièces sur les images. Ensuite, la géométrie mesure : le plus grand cercle libre de chaque pièce est comparé à Ø1,50 m. Aucune sortie de modèle ne décide du verdict.</p>
+              <span className={styles.eyebrow}>{t("verdict.eyebrow")}</span>
+              <h2>{t("verdict.title")}</h2>
+              <p>{t("verdict.body")}</p>
             </div>
             <ul className={styles.verdictList}>
               {DEMO_ROOMS.map((room) => (
                 <li key={room.name}>
                   <span className={styles.swatch} style={{ background: room.color }} />
-                  <strong>{room.name}</strong>
-                  <span className={styles.area}>{fr(room.areaM2, 1)} m²</span>
-                  <span className={room.circle.conforme ? styles.pillOk : styles.pillBad}>{room.verdict}</span>
+                  <strong>{roomName(room)}</strong>
+                  <span className={styles.area}>{fmt(locale, room.areaM2, 1)} m²</span>
+                  <span className={room.circle.conforme ? styles.pillOk : styles.pillBad}>{roomVerdict(room)}</span>
                 </li>
               ))}
             </ul>
           </div>
           <dl className={styles.stats}>
-            <div><dt>Pièces découpées</dt><dd><CountUp value={DEMO_ROOMS.length} reduced={reduced} /></dd></div>
-            <div><dt>Surface mesurée</dt><dd><CountUp value={totalArea} decimals={1} reduced={reduced} /><small> m²</small></dd></div>
-            <div><dt>Cercle exigé</dt><dd><small>Ø</small><CountUp value={TURNING_DIAMETER_M} decimals={2} reduced={reduced} /><small> m</small></dd></div>
-            <div data-bad><dt>Pièce qui ne passe pas</dt><dd><CountUp value={failing} reduced={reduced} /></dd></div>
+            <div><dt>{t("stats.rooms")}</dt><dd><CountUp value={DEMO_ROOMS.length} reduced={reduced} /></dd></div>
+            <div><dt>{t("stats.area")}</dt><dd><CountUp value={totalArea} decimals={1} reduced={reduced} /><small> m²</small></dd></div>
+            <div><dt>{t("stats.required")}</dt><dd><small>Ø</small><CountUp value={TURNING_DIAMETER_M} decimals={2} reduced={reduced} /><small> m</small></dd></div>
+            <div data-bad><dt>{t("stats.failing")}</dt><dd><CountUp value={failing} reduced={reduced} /></dd></div>
           </dl>
-          <p className={styles.exampleNote}>Appartement de démonstration, pas un logement audité.</p>
+          <p className={styles.exampleNote}>{t("hero.example")}</p>
         </div>
       </section>
 
       <section id="fonctionnalites" className={`${styles.wrap} ${styles.featuresSection}`}>
         <div className={styles.sectionHead}>
-          <span className={styles.eyebrow}>Fonctionnalités</span>
-          <h2>Du plan papier au verdict PMR</h2>
-          <p>Lire, découper, mesurer, corriger : chaque étape reste visible et vérifiable.</p>
+          <span className={styles.eyebrow}>{t("features.eyebrow")}</span>
+          <h2>{t("features.title")}</h2>
+          <p>{t("features.body")}</p>
         </div>
         <div className={styles.features}>
-          {FEATURES.map((f, i) => (
-            <article key={f.title} className={styles.feature}>
+          {FEATURE_KEYS.map(([title, text], i) => (
+            <article key={title} className={styles.feature}>
               <span className={styles.featureNum}>{String(i + 1).padStart(2, "0")}</span>
-              <h3>{f.title}</h3>
-              <p>{f.text}</p>
+              <h3>{t(title)}</h3>
+              <p>{t(text)}</p>
             </article>
           ))}
         </div>
@@ -246,16 +247,16 @@ export default function Home() {
 
       <section className={styles.wrap}>
         <div className={styles.ctaBand}>
-          <h2>Avant de signer, sachez si ça passe</h2>
-          <p>Les personnes qui ne peuvent pas entrer dans un logement le découvrent après l&apos;emménagement. Déposez un plan et voyez-le tant que c&apos;est encore du papier.</p>
-          <Link href="/check" className={styles.ctaLight}>Vérifier un plan →</Link>
+          <h2>{t("cta.title")}</h2>
+          <p>{t("cta.body")}</p>
+          <Link href="/check" className={styles.ctaLight}>{t("cta.button")}</Link>
         </div>
       </section>
 
       <footer className={styles.footer}>
         <div className={styles.wrap}>
           <span className={styles.brand}><span className={styles.brandMark} aria-hidden />ConformScope</span>
-          <p>Lecture par Muse Spark, segmentation par SAM 3.1, verdict par la géométrie.</p>
+          <p>{t("footer.line")}</p>
         </div>
       </footer>
     </main>

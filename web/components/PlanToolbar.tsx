@@ -5,8 +5,10 @@ import {
   Eraser, Eye, EyeOff, Hand, Hash, MousePointer2, Pentagon, Route, Ruler, Scan,
   Square, Undo2, ZoomIn, ZoomOut, type LucideIcon,
 } from "lucide-react";
-import { LABELS, MeasureKind, needsScale } from "@/lib/measure";
+import { labelsFor, MeasureKind, needsScale } from "@/lib/measure";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/app/preferences";
+import type { I18nKey } from "@/lib/i18n";
 
 /** What a press on the paper does. `select` is the sheet as it always was: a click
  *  opens a room, a drag pans. `pan` only ever pans, so the auditor can sweep across
@@ -16,12 +18,12 @@ export type Tool = "select" | "pan" | MeasureKind;
 export const ZOOM_MIN = 1;
 export const ZOOM_MAX = 24;
 
-const MEASURES: { kind: MeasureKind; icon: LucideIcon; hint: string }[] = [
-  { kind: "distance", icon: Ruler, hint: "two clicks" },
-  { kind: "perimeter", icon: Route, hint: "double-click to finish" },
-  { kind: "area", icon: Pentagon, hint: "double-click to close" },
-  { kind: "rectangle", icon: Square, hint: "two opposite corners" },
-  { kind: "count", icon: Hash, hint: "one click per item" },
+const MEASURES: { kind: MeasureKind; icon: LucideIcon; hintKey: I18nKey }[] = [
+  { kind: "distance", icon: Ruler, hintKey: "tool.hint.distance" },
+  { kind: "perimeter", icon: Route, hintKey: "tool.hint.perimeter" },
+  { kind: "area", icon: Pentagon, hintKey: "tool.hint.area" },
+  { kind: "rectangle", icon: Square, hintKey: "tool.hint.rectangle" },
+  { kind: "count", icon: Hash, hintKey: "tool.hint.count" },
 ];
 
 /**
@@ -51,6 +53,8 @@ export default function PlanToolbar({
   /** The page's own tools, after the measuring ones. */
   extra?: React.ReactNode;
 }) {
+  const { locale, t } = usePreferences();
+  const LABELS = labelsFor(locale);
   const refusedId = useId();
   const pct = Math.round(zoom * 100);
   const [draft, setDraft] = useState(String(pct));
@@ -65,40 +69,40 @@ export default function PlanToolbar({
   }
 
   return (
-    <div role="toolbar" aria-label="Plan tools"
+    <div role="toolbar" aria-label={t("tool.aria")}
          className="plan-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-card px-2 text-foreground">
-      <Group label="Zoom">
-        <IconButton label="Zoom out" icon={ZoomOut}
+      <Group label={t("tool.zoom")}>
+        <IconButton label={t("tool.zoomOut")} icon={ZoomOut}
                     onClick={() => onZoom(Math.max(ZOOM_MIN, zoom / 1.25))} disabled={zoom <= ZOOM_MIN} />
         <label className="flex h-7 items-center rounded-md bg-muted px-1.5 font-mono text-xs tabular-nums">
-          <input aria-label="Zoom level" value={draft} inputMode="numeric"
+          <input aria-label={t("tool.zoomLevel")} value={draft} inputMode="numeric"
                  className="w-9 bg-transparent text-right outline-none"
                  onChange={(e) => setDraft(e.target.value)}
                  onBlur={commit}
                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
           <span className="text-muted-foreground">%</span>
         </label>
-        <IconButton label="Zoom in" icon={ZoomIn}
+        <IconButton label={t("tool.zoomIn")} icon={ZoomIn}
                     onClick={() => onZoom(Math.min(ZOOM_MAX, zoom * 1.25))} disabled={zoom >= ZOOM_MAX} />
-        <IconButton label="Whole sheet" icon={Scan} onClick={onFit} />
+        <IconButton label={t("tool.whole")} icon={Scan} onClick={onFit} />
       </Group>
 
       <Divider />
 
-      <Group label="Navigation">
-        <IconButton label="Select" icon={MousePointer2}
+      <Group label={t("tool.navigation")}>
+        <IconButton label={t("tool.select")} icon={MousePointer2}
                     pressed={tool === "select"} onClick={() => onTool("select")} />
-        <IconButton label="Hand (pan without opening a room)" icon={Hand}
+        <IconButton label={t("tool.hand")} icon={Hand}
                     pressed={tool === "pan"} onClick={() => onTool("pan")} />
       </Group>
 
       <Divider />
 
-      <Group label="Measure">
-        {MEASURES.map(({ kind, icon, hint }) => {
+      <Group label={t("tool.measure")}>
+        {MEASURES.map(({ kind, icon, hintKey }) => {
           const refused = needsScale(kind) && measureRefusal != null;
           return (
-            <IconButton key={kind} label={`${LABELS[kind]} — ${hint}`} icon={icon}
+            <IconButton key={kind} label={`${LABELS[kind]} — ${t(hintKey)}`} icon={icon}
                         pressed={tool === kind} refused={refused}
                         describedBy={refused ? refusedId : undefined}
                         onClick={() => { if (!refused) onTool(tool === kind ? "select" : kind); }} />
@@ -109,15 +113,15 @@ export default function PlanToolbar({
 
       <Divider />
 
-      <Group label="Measurements">
-        <IconButton label="Remove the last measurement" icon={Undo2} onClick={onUndo} disabled={!canUndo} />
-        <IconButton label="Clear every measurement" icon={Eraser} onClick={onClear} disabled={!canClear} />
+      <Group label={t("tool.measurements")}>
+        <IconButton label={t("tool.undoMeasure")} icon={Undo2} onClick={onUndo} disabled={!canUndo} />
+        <IconButton label={t("tool.clearMeasures")} icon={Eraser} onClick={onClear} disabled={!canClear} />
       </Group>
 
       {extra && <><Divider />{extra}</>}
 
       <div className="ml-auto" />
-      <IconButton label="Hide the overlays" icon={bare ? EyeOff : Eye} pressed={bare} onClick={() => onBare(!bare)} />
+      <IconButton label={t("tool.hideOverlays")} icon={bare ? EyeOff : Eye} pressed={bare} onClick={() => onBare(!bare)} />
     </div>
   );
 }

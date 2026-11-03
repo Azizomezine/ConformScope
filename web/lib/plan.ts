@@ -2,6 +2,8 @@
    the check screen makes. Every point is in plan-image pixels: the sheet's PNG is the
    drawing, and its width × height is the SVG viewBox. */
 
+import { translate, type Locale } from "@/lib/i18n";
+
 export type Pt = [number, number];
 
 export type Room = {
@@ -32,6 +34,9 @@ export type Door = {
   verdict: string;
   doorway_px: Pt[];
   swing_px: Pt;
+  /** A proposal on paper: widened to required_m from drawn_m. Never a stored verdict. */
+  proposed?: boolean;
+  drawn_m?: number;
 };
 
 export type Space = {
@@ -64,6 +69,8 @@ export type Walk = {
   stops: { kind: "door" | "turn"; door: number | null; room: number | null; reason: string }[];
   route: WalkStep[];
   verdict: string;
+  /** The doors this walk widened on paper (a proposal), when any. */
+  proposed?: number[];
 };
 
 export type Correction =
@@ -150,12 +157,23 @@ export const SCALE_TEXT: Record<string, string> = {
 
 export const REQUIRED_DIAMETER_M = 1.5;
 
-export function roomLabel(room: Room | undefined, i: number) {
-  return room?.name || `Room ${i + 1}`;
+export function roomLabel(room: Room | undefined, i: number, locale: Locale = "en") {
+  return room?.name || translate(locale, "room.fallback", { n: i + 1 });
 }
 
-export function typeLabel(room: Room) {
-  return ROOM_TYPE_LABELS[room.room_type] ?? room.room_type;
+export function sourceText(source: Room["type_source"], locale: Locale = "en") {
+  return translate(locale, `source.${source}` as Parameters<typeof translate>[1]);
+}
+export function scaleText(source: string | null | undefined, locale: Locale = "en") {
+  if (!source) return source ?? null;
+  const key = `scale.${source}` as Parameters<typeof translate>[1];
+  const localized = translate(locale, key);
+  return localized === key ? (SCALE_TEXT[source] ?? source) : localized;
+}
+export function typeLabel(room: Room, locale: Locale = "en") {
+  const key = `type.${room.room_type}` as Parameters<typeof translate>[1];
+  const localized = translate(locale, key);
+  return localized === key ? (ROOM_TYPE_LABELS[room.room_type] ?? room.room_type) : localized;
 }
 
 export type Verdict = "conforme" | "non-conforme" | "pas-verifie";
@@ -184,9 +202,9 @@ export function insidePolygon([x, y]: Pt, polygon: Pt[]) {
   return inside;
 }
 
-export function doorSides(door: Door, rooms: Room[]) {
+export function doorSides(door: Door, rooms: Room[], locale: Locale = "en") {
   return door.rooms
-    .map((i) => (i === null ? "outside the rooms" : roomLabel(rooms[i], i)))
+    .map((i) => (i === null ? translate(locale, "door.outside") : roomLabel(rooms[i], i, locale)))
     .join(" ↔ ");
 }
 

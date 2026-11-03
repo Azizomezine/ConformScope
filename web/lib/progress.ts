@@ -1,4 +1,5 @@
 import type { Stage } from "@/lib/plan";
+import { translate, type Locale } from "@/lib/i18n";
 
 /* How the reading bar maps the stages a sheet's check streams onto its 0–100 (copied
    from pmr-checker's ADR 0021). Each stage owns a band; the bar creeps inside the band
@@ -46,17 +47,17 @@ export function crept(at: number, [lo, hi]: Band): number {
 }
 
 /** What the auditor is told the bar is waiting on. */
-export function labelOf(stage: Stage | null, sent: number | null): string {
-  if (sent !== null) return `Sending the plan — ${Math.round(sent * 100)}%`;
-  if (!stage) return "Starting…";
+export function labelOf(stage: Stage | null, sent: number | null, locale: Locale = "en"): string {
+  if (sent !== null) return translate(locale, "progress.sending", { pct: Math.round(sent * 100) });
+  if (!stage) return translate(locale, "progress.starting");
   switch (stage.stage) {
-    case "reading": return "Muse Spark is reading the plan…";
-    case "measuring": return "Measuring the rooms against the drawn walls…";
-    case "typing": return "Muse Spark is typing the unnamed rooms…";
-    case "segmenting": return "SAM 3.1 is outlining the rooms…";
-    case "scale": return "Muse Spark is reading a dimension for the scale…";
-    case "fixtures": return "Muse Spark is finding the fixtures…";
-    case "outlining": return `SAM 3.1 is outlining the fixtures — batch ${stage.batch}/${stage.of}`;
-    default: return "Working…";
+    case "reading": return translate(locale, "progress.reading");
+    case "measuring": return translate(locale, "progress.measuring");
+    case "typing": return translate(locale, "progress.typing");
+    case "segmenting": return translate(locale, "progress.segmenting");
+    case "scale": return translate(locale, "progress.scale");
+    case "fixtures": return translate(locale, "progress.fixtures");
+    case "outlining": return translate(locale, "progress.outlining", { batch: stage.batch ?? "", of: stage.of ?? "" });
+    default: return translate(locale, "progress.working");
   }
 }

@@ -18,27 +18,30 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  NDJSON, SCALE_TEXT, SOURCE_TEXT, fixtureSummary, insidePolygon, sheetSize, streamed, uploadDossier,
+  NDJSON, scaleText, sourceText, fixtureSummary, insidePolygon, sheetSize, streamed, uploadDossier,
   type Correction, type Dossier, type ExplainResult, type PlanReading, type Pt, type Sheet,
   type Stage, type Walk,
 } from "@/lib/plan";
 import { bandOf, crept, labelOf, sendingAt } from "@/lib/progress";
 import { cn } from "@/lib/utils";
+import { PreferenceControls, usePreferences } from "@/app/preferences";
+import { translate, type I18nKey } from "@/lib/i18n";
 
 const STEP_MS = 450; // one leg of the route: a room centre to a doorway, or a pause at a stop
 
 type Mode = "none" | "merge" | "wall" | "remove" | "door" | "walk";
 
-const HINTS: Record<Exclude<Mode, "none">, [string, string]> = {
-  merge: ["Click the room that stays.", "Now click the nook to merge into it."],
-  wall: ["Click one end of the missing wall.", "Now click the other end of the wall."],
-  remove: ["Click the fixture that is not there.", ""],
-  door: ["Click inside the swing of the door that is not there.", ""],
-  walk: ["Click the room the wheelchair starts in.", ""],
+const HINTS: Record<Exclude<Mode, "none">, [I18nKey, I18nKey | ""]> = {
+  merge: ["hint.merge1", "hint.merge2"],
+  wall: ["hint.wall1", "hint.wall2"],
+  remove: ["hint.remove1", ""],
+  door: ["hint.door1", ""],
+  walk: ["hint.walk1", ""],
 };
 
 function failure(error: unknown) {
-  return error instanceof TypeError ? "Could not reach the ConformScope server." : String((error as Error).message);
+  const locale = typeof document !== "undefined" && document.documentElement.lang === "fr" ? "fr" : "en";
+  return error instanceof TypeError ? translate(locale, "err.unreachable") : String((error as Error).message);
 }
 
 /**
@@ -47,6 +50,7 @@ function failure(error: unknown) {
  * rooms and the report side by side.
  */
 export function PlanIntake() {
+  const { locale, t } = usePreferences();
   const [dossier, setDossier] = useState<Dossier | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [page, setPage] = useState<number | null>(null);
@@ -82,6 +86,12 @@ export function PlanIntake() {
 
   // Walk the plan (issue #14): the route, and how many of its legs the icon has rolled.
   const [walk, setWalk] = useState<Walk | null>(null);
+  // Proposals: doors widened on paper, the walk as drawn to compare with, and the room it
+  // started from. Never stored — a proposal changes the design, not the verdicts.
+  const [proposed, setProposed] = useState<number[]>([]);
+  const [asDrawn, setAsDrawn] = useState<Walk | null>(null);
+  const [walkStart, setWalkStart] = useState<number | null>(null);
+  const [proposing, setProposing] = useState(false);
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
   const reducedMotion = useSyncExternalStore(
@@ -155,7 +165,7 @@ export function PlanIntake() {
     if (!id) return;
     const sheet = Number(q.get("sheet"));
     fetch(`/api/plans/${id}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("This plan is no longer on the server."))))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(translate(document.documentElement.lang === "fr" ? "fr" : "en", "err.gone")))))
       .then((d: Dossier) => {
         setDossier(d);
         const chosen = d.sheets.find((s) => s.page === sheet) ?? d.sheets.find((s) => !s.annexe) ?? d.sheets[0];
@@ -171,6 +181,7 @@ export function PlanIntake() {
     setReadKeys((ks) => new Set(ks).add(key(body.id, body.page)));
     setReading(body);
     setExplain(null);
+    setProposed([]); setAsDrawn(body.walk ?? null); setWalkStart(null);
     play(body.walk ?? null);
   }
 
@@ -235,7 +246,7 @@ export function PlanIntake() {
       setPending(null);
       setMode("none");
     } catch (error) {
-      setFault(`The correction was not applied. ${failure(error)}`);
+      setFault(t("err.correction", { detail: failure(error) }));
     } finally {
       setReplaying(false);
       setStage(null);
@@ -249,11 +260,32 @@ export function PlanIntake() {
     try {
       const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/walk?from=${room}`);
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.detail ?? `Walking the plan failed (${response.status})`);
+      if (!response.ok) throw new Error(body?.detail ?? t("err.walk", { status: response.status }));
+      setProposed([]); setAsDrawn(body); setWalkStart(room);
       play(body);
       setMode("none");
     } catch (error) {
       setFault(failure(error));
+    }
+  }
+
+  /** Walk the sheet as if these doors were widened: a what-if, answered at once. */
+  async function propose(next: number[]) {
+    if (!reading) return;
+    if (next.length === 0) { setProposed([]); play(asDrawn); return; }
+    setProposing(true); setFault(null);
+    try {
+      const q = new URLSearchParams({ widen: next.join(",") });
+      if (walkStart !== null) q.set("from", String(walkStart));
+      const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/walk?${q}`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail ?? t("err.propose", { status: response.status }));
+      setProposed(next);
+      play(body);
+    } catch (error) {
+      setFault(failure(error));
+    } finally {
+      setProposing(false);
     }
   }
 
@@ -264,7 +296,7 @@ export function PlanIntake() {
     try {
       const response = await fetch(`/api/plans/${reading.id}/sheets/${reading.page}/explain`);
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body) throw new Error(body?.detail ?? `Explaining the failures failed (${response.status})`);
+      if (!response.ok || !body) throw new Error(body?.detail ?? t("err.explain", { status: response.status }));
       setExplain(body as ExplainResult);
     } catch (error) {
       setFault(failure(error));
@@ -317,6 +349,11 @@ export function PlanIntake() {
   const sheet = dossier?.sheets.find((s) => s.page === page) ?? null;
   const size = dossier && page !== null ? sizes[key(dossier.id, page)] : undefined;
   const shown = reading && reading.page === page && reading.id === dossier?.id ? reading : null;
+  // The plan as drawn, with the proposed doors drawn widened (dashed) on top.
+  const drawn = shown && proposed.length > 0
+    ? { ...shown, doors: (shown.doors ?? []).map((d, i) => (proposed.includes(i)
+        ? { ...d, ok: true, proposed: true, drawn_m: d.width_m, width_m: d.required_m ?? d.width_m } : d)) }
+    : shown;
   const checked = shown?.rooms.filter((r) => r.conforme !== null) ?? [];
   const passing = checked.filter((r) => r.conforme).length;
   // The pending point is kept in PDF points, as corrections are; the drawing wants pixels.
@@ -326,18 +363,18 @@ export function PlanIntake() {
   const pct = Math.round(sent !== null ? sendingAt(sent) : progress);
 
   const correctionTools = shown?.checked ? (
-    <Group label="Corrections">
-      <IconButton label="Merge a nook into a room" icon={Combine} pressed={mode === "merge"}
+    <Group label={t("corr.group")}>
+      <IconButton label={t("corr.merge")} icon={Combine} pressed={mode === "merge"}
                   disabled={busy} onClick={() => toggle("merge")} />
-      <IconButton label="Draw a missing wall" icon={PenLine} pressed={mode === "wall"}
+      <IconButton label={t("corr.wall")} icon={PenLine} pressed={mode === "wall"}
                   disabled={busy} onClick={() => toggle("wall")} />
-      <IconButton label="Remove a fixture" icon={PackageX} pressed={mode === "remove"}
+      <IconButton label={t("corr.removeFixture")} icon={PackageX} pressed={mode === "remove"}
                   disabled={busy || !shown.fixtures?.length} onClick={() => toggle("remove")} />
-      <IconButton label="Remove a door" icon={DoorClosed} pressed={mode === "door"}
+      <IconButton label={t("corr.removeDoor")} icon={DoorClosed} pressed={mode === "door"}
                   disabled={busy || !shown.doors?.length} onClick={() => toggle("door")} />
-      <IconButton label="Start the walk in a room" icon={Accessibility} pressed={mode === "walk"}
+      <IconButton label={t("corr.walk")} icon={Accessibility} pressed={mode === "walk"}
                   disabled={busy || shown.rooms.length === 0} onClick={() => toggle("walk")} />
-      <IconButton label="Clear every correction" icon={RotateCcw}
+      <IconButton label={t("corr.clear")} icon={RotateCcw}
                   disabled={busy || shown.corrections.length === 0} onClick={() => postCorrections([])} />
     </Group>
   ) : null;
@@ -349,37 +386,37 @@ export function PlanIntake() {
                        over && "status pointer-events-auto border-solid bg-card/95 py-6 shadow-lg")}>
       {!over && <div className="font-mono text-[44px] leading-none text-primary" aria-hidden>Ø</div>}
       <p className={cn("font-lettering text-[13px] font-semibold uppercase tracking-[.14em]", !over && "mt-4")}>
-        {shown && !shown.checked ? "Plan annexe — not checked"
-          : sent !== null ? "Sending the plan…"
-          : checking ? "Checking the sheet…"
-          : over ? "Check interrupted" : "No plan open"}
+        {shown && !shown.checked ? t("intake.annexeTitle")
+          : sent !== null ? t("intake.sendingTitle")
+          : checking ? t("intake.checkingTitle")
+          : over ? t("intake.interruptedTitle") : t("intake.noPlanTitle")}
       </p>
       <p className="mx-auto mt-2 max-w-[46ch] text-muted-foreground">
         {shown && !shown.checked ? shown.reason
-          : sent !== null ? "The file is sent as it is; its sheets are listed as soon as it arrives."
-          : checking ? "Muse Spark reads the names and the scale, then the rooms are measured in metres and every turning circle, door and toilet is checked."
-          : over ? "Open this sheet again to resume its check."
-          : "Open a home plan, PDF or picture — one sheet or a whole building. ConformScope measures every room in metres and checks the Ø1.50 m turning circle, the doors and the walk through the home."}
+          : sent !== null ? t("intake.sendingBody")
+          : checking ? t("intake.checkingBody")
+          : over ? t("intake.interruptedBody")
+          : t("intake.noPlanBody")}
       </p>
 
       {!busy && !over && (
         <Button className="mt-6" onClick={() => picker.current?.click()}>
-          <FileUp />Choose a plan
+          <FileUp />{t("intake.choose")}
         </Button>
       )}
       {!busy && over && !shown && dossier && page !== null && (
         <Button className="mt-4" variant="outline" onClick={() => openSheet(dossier, page, "none")}>
-          <RotateCcw />Check this sheet again
+          <RotateCcw />{t("intake.recheck")}
         </Button>
       )}
 
       {(checking || sent !== null) && (
         <div className="mt-6" role="status" aria-live="polite">
           <div className="flex items-center gap-3">
-            <Progress value={pct} aria-label="Checking the sheet" className="h-1 rounded-none bg-border" />
+            <Progress value={pct} aria-label={t("intake.checkingAria")} className="h-1 rounded-none bg-border" />
             <span className="min-w-[4ch] text-right font-mono text-xs text-primary">{pct}%</span>
           </div>
-          <p className="mt-2 text-left font-mono text-xs text-muted-foreground">{labelOf(stage, sent)}</p>
+          <p className="mt-2 text-left font-mono text-xs text-muted-foreground">{labelOf(stage, sent, locale)}</p>
         </div>
       )}
     </div>
@@ -388,10 +425,10 @@ export function PlanIntake() {
   return (
     <TooltipProvider>
     <main className="tool bg-background text-foreground">
-      <header className="masthead flex h-14 flex-none items-center gap-3 border-b border-border bg-card px-4">
-        <Link href="/" className={cn("flex flex-none items-center gap-2 font-lettering text-[13px] font-bold uppercase tracking-[.18em]",
+      <header className="masthead flex h-16 flex-none items-center gap-3 border-b border-border bg-card px-4">
+        <Link href="/" className={cn("flex flex-none items-center gap-2.5 text-[19px] font-extrabold tracking-[-0.02em] text-primary",
                                      shown && "hidden xl:flex")}>
-          <span aria-hidden className="font-mono text-base text-primary">Ø</span>ConformScope
+          <span aria-hidden className="brand-mark" />ConformScope
         </Link>
         <Separator orientation="vertical" className={cn("h-6!", shown && "hidden xl:block")} />
 
@@ -405,7 +442,7 @@ export function PlanIntake() {
               <span className="tally inline-flex items-center gap-1 whitespace-nowrap">
                 <CircleCheck aria-hidden />
                 <span className="font-mono text-foreground">{passing}</span>/
-                <span className="font-mono text-foreground">{checked.length}</span> rooms pass
+                <span className="font-mono text-foreground">{checked.length}</span> {t("intake.roomsPass")}
               </span>
               <span className="hidden items-center gap-1 whitespace-nowrap font-mono md:inline-flex">
                 <CircleDashed aria-hidden />Ø 1.50 m
@@ -414,19 +451,20 @@ export function PlanIntake() {
                 <span className={cn("hidden items-center gap-1 whitespace-nowrap lg:inline-flex",
                                     shown.scale_source === "assumed" && "text-primary")}>
                   <Ruler aria-hidden />
-                  {shown.scale ?? "no written scale"}
-                  {shown.scale_source && `, ${SCALE_TEXT[shown.scale_source] ?? shown.scale_source}`}
+                  {shown.scale ?? t("intake.noScale")}
+                  {shown.scale_source && `, ${scaleText(shown.scale_source, locale)}`}
                 </span>
               )}
             </div>
           </div>
         ) : (
           <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-            Can a wheelchair live in this home?
+            {t("intake.tagline")}
           </span>
         )}
 
         <div className="ml-auto flex flex-none items-center gap-2">
+          <PreferenceControls />
           {dossier && dossier.sheets.length > 1 && (
             <Sheets sheets={dossier.sheets} open={page} disabled={sent !== null}
                     read={(s) => readKeys.has(key(dossier.id, s.page))}
@@ -436,13 +474,13 @@ export function PlanIntake() {
             <Button variant="outline" size="sm" aria-pressed={reportOpen}
                     className="aria-pressed:border-primary aria-pressed:bg-accent"
                     onClick={() => setReportOpen((o) => !o)}>
-              <FileText /><span className="sr-only md:not-sr-only">Report</span>
+              <FileText /><span className="sr-only md:not-sr-only">{t("intake.report")}</span>
             </Button>
           )}
           <Button variant={shown ? "ghost" : "outline"} size="sm"
                   className={cn(!shown && "border-primary/60")}
                   disabled={busy} onClick={() => picker.current?.click()}>
-            <FileUp /><span className={cn(shown && "sr-only lg:not-sr-only")}>Open a plan</span>
+            <FileUp /><span className={cn(shown && "sr-only lg:not-sr-only")}>{t("intake.openPlan")}</span>
           </Button>
           <input ref={picker} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden
                  onChange={(e) => {
@@ -486,7 +524,7 @@ export function PlanIntake() {
             <div className="relative h-full [&>.drawing]:h-full">
               <PlanViewer key={`${dossier.id}-${shown.page}`}
                           sheet={{ id: shown.id, page: shown.page, width: shown.width, height: shown.height }}
-                          reading={shown} active={active}
+                          reading={drawn} active={active}
                           onPick={(i) => setActive(i)}
                           correcting={mode !== "none" && !busy} onPoint={onPoint}
                           pending={pointToFix(pending)}
@@ -494,18 +532,18 @@ export function PlanIntake() {
               {mode !== "none" && !replaying && (
                 <p role="status"
                    className="pointer-events-none absolute top-13 left-1/2 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-2xl bg-ink/85 px-3.5 py-1.5 text-center text-xs text-vellum shadow-md backdrop-blur-xl backdrop-saturate-150 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200">
-                  {HINTS[mode][pending ? 1 : 0] || HINTS[mode][0]} Esc to cancel.
+                  {t((HINTS[mode][pending ? 1 : 0] || HINTS[mode][0]) as I18nKey)} {t("intake.esc")}
                 </p>
               )}
               {replaying && (
                 <div role="status" aria-live="polite"
                      className="absolute top-13 left-1/2 w-[min(420px,calc(100%-2rem))] -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-lg">
-                  <p className="font-lettering text-[11px] font-semibold uppercase tracking-[.14em]">Applying the correction…</p>
+                  <p className="font-lettering text-[11px] font-semibold uppercase tracking-[.14em]">{t("intake.applying")}</p>
                   <div className="mt-2 flex items-center gap-3">
-                    <Progress value={pct} aria-label="Applying the correction" className="h-1 rounded-none bg-border" />
+                    <Progress value={pct} aria-label={t("intake.applyingAria")} className="h-1 rounded-none bg-border" />
                     <span className="min-w-[4ch] text-right font-mono text-xs text-primary">{pct}%</span>
                   </div>
-                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">{labelOf(stage, null)}</p>
+                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">{labelOf(stage, null, locale)}</p>
                 </div>
               )}
             </div>
@@ -518,12 +556,12 @@ export function PlanIntake() {
                 <>
                   {shown.scale_source === "assumed" && (
                     <p role="status" className="assumed-scale mb-3 rounded-sm px-3 py-2.5 text-xs leading-relaxed">
-                      Scale assumed: no dimension was read on this plan. Check it before you rely on a verdict.
+                      {t("intake.assumed")}
                     </p>
                   )}
                   {/* The tool talking about its own work: cobalt, never a verdict. */}
                   {shown.warnings.map((w) => (
-                    <p key={w} className="notice mb-3 rounded-sm border-l-2 border-primary bg-accent px-3 py-2.5 text-xs leading-relaxed text-[#b9cdea]">
+                    <p key={w} className="notice mb-3 rounded-sm border-l-2 border-primary bg-accent px-3 py-2.5 text-xs leading-relaxed text-primary">
                       {w}
                     </p>
                   ))}
@@ -536,34 +574,34 @@ export function PlanIntake() {
                   <div className="grid gap-2 border-t border-secondary bg-accent/40 px-3 py-3 text-xs motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-200">
                     {room.verdict && <p><Mark ok={room.conforme}>{room.verdict}</Mark></p>}
                     <p className="text-muted-foreground">
-                      Typed from the {SOURCE_TEXT[room.type_source]}
-                      {room.written_area_m2 !== null && ` · ${room.written_area_m2} m² written on the plan`}
+                      {t("room.typedFrom", { source: sourceText(room.type_source, locale) })}
+                      {room.written_area_m2 !== null && t("room.writtenArea", { area: room.written_area_m2 })}
                     </p>
                     {(room.doors?.length ?? 0) > 0 && (
                       <p className="text-muted-foreground">
-                        {room.doors!.length} door{room.doors!.length === 1 ? "" : "s"}
+                        {t(room.doors!.length === 1 ? "room.doorsOne" : "room.doorsMany", { n: room.doors!.length })}
                         {room.doors!.some((d) => shown.doors?.[d]?.ok === false) && (
-                          <span className="text-non-conforme"> · one is too narrow</span>
+                          <span className="text-non-conforme">{t("room.doorNarrow")}</span>
                         )}
                       </p>
                     )}
                     {(room.fixtures?.length ?? 0) > 0 && (
-                      <p className="text-muted-foreground">Fixtures: {fixtureSummary(fixtures, room.fixtures)}</p>
+                      <p className="text-muted-foreground">{t("room.fixtures", { list: fixtureSummary(fixtures, room.fixtures) })}</p>
                     )}
                     {(room.fixtures ?? []).map((f) => {
                       const space = fixtures[f]?.space;
                       return space ? <p key={f}><Mark ok={space.fits}>{space.verdict}</Mark></p> : null;
                     })}
-                    {room.outline_source !== "auto" && <p className="text-primary">Outline corrected by hand</p>}
+                    {room.outline_source !== "auto" && <p className="text-primary">{t("room.outlineCorrected")}</p>}
                     {room.warnings.map((w) => <p key={w} className="text-non-conforme">{w}</p>)}
                     <div className="mt-1 flex flex-wrap gap-1.5 border-t border-dashed border-border pt-2">
                       <Button size="xs" variant="outline" disabled={busy} onClick={() => walkFrom(i)}>
-                        <Accessibility />Start the walk here
+                        <Accessibility />{t("room.startWalk")}
                       </Button>
                       {room.conforme !== null && (
                         <Button size="xs" variant="ghost" disabled={busy}
                                 onClick={() => correct({ kind: "override", target: "room", index: i, value: !room.conforme })}>
-                          {room.conforme ? "Override: mark as failing" : "Override: mark as passing"}
+                          {room.conforme ? t("room.overrideFail") : t("room.overridePass")}
                         </Button>
                       )}
                     </div>
@@ -576,8 +614,10 @@ export function PlanIntake() {
                         walk={walk} playing={playing} played={clock > 0}
                         onPlay={() => play(walk)} onPause={() => setPlaying(false)}
                         busy={busy} onCorrect={correct}
+                        asDrawn={asDrawn} proposed={proposed} proposing={proposing}
+                        onPropose={propose}
                         explain={explain} explaining={explaining} onExplain={explainFailures}
-                        onClose={() => setReportOpen(false)} />
+                        onClose={() => setReportOpen(false)} fileName={fileName} />
           } />
       )}
     </main>
@@ -601,11 +641,12 @@ function Sheets({ sheets, open, disabled, read, onOpen }: {
   read: (sheet: Sheet) => boolean;
   onOpen: (sheet: Sheet) => void;
 }) {
+  const { t } = usePreferences();
   const at = sheets.findIndex((s) => s.page === open);
   return (
-    <nav className="sheets flex items-center gap-1" aria-label="Sheets of the dossier">
-      <Key className="mr-1 hidden md:block">Sheet</Key>
-      <Button variant="ghost" size="icon-xs" aria-label="Previous sheet" disabled={disabled || at <= 0}
+    <nav className="sheets flex items-center gap-1" aria-label={t("sheet.aria")}>
+      <Key className="mr-1 hidden md:block">{t("sheet.label")}</Key>
+      <Button variant="ghost" size="icon-xs" aria-label={t("sheet.prev")} disabled={disabled || at <= 0}
               onClick={() => onOpen(sheets[at - 1])}><ChevronLeft /></Button>
       {sheets.map((s, i) => (
         <Tooltip key={s.page}>
@@ -615,7 +656,7 @@ function Sheets({ sheets, open, disabled, read, onOpen }: {
                                   i === at && "bg-accent text-foreground ring-1 ring-primary",
                                   s.annexe && "opacity-40",
                                   read(s) && i !== at && "text-foreground")}
-                    aria-label={s.annexe ? `${s.name}, not checked` : s.name}
+                    aria-label={s.annexe ? t("sheet.annexeName", { name: s.name }) : s.name}
                     aria-current={i === at ? "page" : undefined}
                     onClick={() => onOpen(s)}>
               {i + 1}
@@ -623,11 +664,11 @@ function Sheets({ sheets, open, disabled, read, onOpen }: {
           </TooltipTrigger>
           <TooltipContent className="max-w-64">
             <p className="font-medium">{s.name}</p>
-            {s.annexe ? "A plan annexe: listed, never checked." : read(s) ? "Checked" : "Checked when opened"}
+            {s.annexe ? t("sheet.annexeTip") : read(s) ? t("sheet.checkedTip") : t("sheet.uncheckedTip")}
           </TooltipContent>
         </Tooltip>
       ))}
-      <Button variant="ghost" size="icon-xs" aria-label="Next sheet"
+      <Button variant="ghost" size="icon-xs" aria-label={t("sheet.next")}
               disabled={disabled || at < 0 || at >= sheets.length - 1}
               onClick={() => onOpen(sheets[at + 1])}><ChevronRight /></Button>
     </nav>

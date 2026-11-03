@@ -1,4 +1,5 @@
 import type { Pt } from "@/lib/plan";
+import { translate, type Locale } from "@/lib/i18n";
 
 /**
  * The auditor's own dimensions, taken on the plan with the measuring tools (ported from
@@ -36,6 +37,14 @@ export const LABELS: Record<MeasureKind, string> = {
   rectangle: "Rectangle",
   count: "Count",
 };
+
+export const labelsFor = (locale: Locale): Record<MeasureKind, string> => ({
+  distance: translate(locale, "measure.distance"),
+  perimeter: translate(locale, "measure.perimeter"),
+  area: translate(locale, "measure.area"),
+  rectangle: translate(locale, "measure.rectangle"),
+  count: translate(locale, "measure.count"),
+});
 
 export const dist = ([ax, ay]: Pt, [bx, by]: Pt) => Math.hypot(bx - ax, by - ay);
 

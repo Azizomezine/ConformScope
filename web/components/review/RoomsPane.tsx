@@ -8,14 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { REQUIRED_DIAMETER_M, roomLabel, typeLabel, verdictOf, type Room, type Verdict } from "@/lib/plan";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/app/preferences";
+import type { I18nKey } from "@/lib/i18n";
 
 type Filter = "all" | Verdict;
 
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "conforme", label: "Pass" },
-  { value: "non-conforme", label: "Fail" },
-  { value: "pas-verifie", label: "Not checked" },
+const FILTER_KEYS: { value: Filter; key: I18nKey }[] = [
+  { value: "all", key: "filter.all" },
+  { value: "conforme", key: "filter.pass" },
+  { value: "non-conforme", key: "filter.fail" },
+  { value: "pas-verifie", key: "filter.unchecked" },
 ];
 
 /** Lower-cased, accents gone: "sejour" finds "Séjour". */
@@ -34,6 +36,7 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
   /** The tool's own remarks about this sheet, shown above the cards. */
   notices?: React.ReactNode;
 }) {
+  const { locale, t } = usePreferences();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -46,13 +49,13 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
   const q = fold(query.trim());
   const shown = (r: Room, i: number) =>
     (filter === "all" || verdictOf(r) === filter) &&
-    (!q || String(i + 1) === q || fold(roomLabel(r, i)).includes(q) || fold(typeLabel(r)).includes(q));
+    (!q || String(i + 1) === q || fold(roomLabel(r, i, locale)).includes(q) || fold(typeLabel(r, locale)).includes(q));
   const order = rooms.map((r, i) => (shown(r, i) ? i : -1)).filter((i) => i >= 0);
   const at = active === null ? -1 : order.indexOf(active);
 
   return (
-    <section aria-label="Rooms" className="flex h-full min-h-0 flex-col bg-card">
-      <PaneHeader icon={<LayoutGrid />} title="Rooms">
+    <section aria-label={t("rooms.title")} className="flex h-full min-h-0 flex-col bg-card">
+      <PaneHeader icon={<LayoutGrid />} title={t("rooms.title")}>
         <span className="font-mono text-xs text-muted-foreground">{rooms.length}</span>
       </PaneHeader>
 
@@ -60,37 +63,37 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
         <label className="relative block">
           <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)}
-                 aria-label="Search a room" placeholder="Search: number, name or type"
+                 aria-label={t("rooms.searchAria")} placeholder={t("rooms.searchPh")}
                  className="h-8 bg-background pl-8 text-xs" />
         </label>
 
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="icon-sm" aria-label="Previous room"
+          <Button variant="outline" size="icon-sm" aria-label={t("rooms.prev")}
                   disabled={order.length === 0 || at === 0}
                   onClick={() => onPick(order[at <= 0 ? order.length - 1 : at - 1])}>
             <ChevronLeft />
           </Button>
           <Select value={active === null ? "all" : String(active)}
                   onValueChange={(v) => onPick(v === "all" ? null : Number(v))}>
-            <SelectTrigger size="sm" aria-label="Go to room" className="min-w-0 flex-1 bg-background text-xs">
+            <SelectTrigger size="sm" aria-label={t("rooms.goto")} className="min-w-0 flex-1 bg-background text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Every room</SelectItem>
+              <SelectItem value="all">{t("rooms.every")}</SelectItem>
               {rooms.map((r, i) => (
-                <SelectItem key={i} value={String(i)}>{i + 1} — {roomLabel(r, i)}</SelectItem>
+                <SelectItem key={i} value={String(i)}>{i + 1} — {roomLabel(r, i, locale)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon-sm" aria-label="Next room"
+          <Button variant="outline" size="icon-sm" aria-label={t("rooms.next")}
                   disabled={order.length === 0 || at === order.length - 1}
                   onClick={() => onPick(order[at + 1] ?? order[0])}>
             <ChevronRight />
           </Button>
         </div>
 
-        <div role="radiogroup" aria-label="Filter by verdict" className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => (
+        <div role="radiogroup" aria-label={t("rooms.filterAria")} className="flex flex-wrap gap-1.5">
+          {FILTER_KEYS.map((f) => (
             <button key={f.value} type="button" role="radio" aria-checked={filter === f.value}
                     onClick={() => setFilter(f.value)}
                     className={cn(
@@ -98,7 +101,7 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
                       "hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50",
                       "aria-checked:border-foreground/70 aria-checked:bg-secondary aria-checked:text-foreground")}>
               {filter === f.value && <Check aria-hidden className="size-3" />}
-              {f.label}
+              {t(f.key)}
               <span className="font-mono text-[10.5px] opacity-70">{counts[f.value]}</span>
             </button>
           ))}
@@ -110,10 +113,10 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
 
         {order.length === 0 && (
           <div className="grid place-items-center gap-2 py-10 text-center text-xs text-muted-foreground">
-            {rooms.length === 0 ? "No rooms were measured on this sheet." : "No room matches."}
+            {rooms.length === 0 ? t("rooms.noneMeasured") : t("rooms.noneMatch")}
             {rooms.length > 0 && (
               <Button variant="ghost" size="xs" onClick={() => { setQuery(""); setFilter("all"); }}>
-                <X />Show every room
+                <X />{t("rooms.showAll")}
               </Button>
             )}
           </div>
@@ -132,14 +135,14 @@ export default function RoomsPane({ rooms, active, onPick, body, notices }: {
   );
 }
 
-const BADGE: Record<Verdict, { text: string; icon: React.ReactNode; className: string }> = {
-  conforme: { text: "Pass", icon: <Check />, className: "border-conforme/50 text-conforme" },
-  "non-conforme": { text: "Fail", icon: <X />, className: "border-non-conforme/50 text-non-conforme" },
-  "pas-verifie": { text: "Not checked", icon: null, className: "border-transparent bg-secondary text-muted-foreground" },
+const BADGE: Record<Verdict, { key: I18nKey; icon: React.ReactNode; className: string }> = {
+  conforme: { key: "badge.pass", icon: <Check />, className: "border-conforme/50 text-conforme" },
+  "non-conforme": { key: "badge.fail", icon: <X />, className: "border-non-conforme/50 text-non-conforme" },
+  "pas-verifie": { key: "badge.unchecked", icon: null, className: "border-transparent bg-secondary text-muted-foreground" },
 };
 
-const SAID: Record<Room["type_source"], string | null> = {
-  text: "plan", fixture: "fixture", muse: "Muse", none: null,
+const SAID: Record<Room["type_source"], I18nKey | null> = {
+  text: "said.plan", fixture: "said.fixture", muse: "said.muse", none: null,
 };
 
 function RoomCard({ room, index, active, onPick, children }: {
@@ -149,6 +152,7 @@ function RoomCard({ room, index, active, onPick, children }: {
   onPick: () => void;
   children: React.ReactNode;
 }) {
+  const { locale, t } = usePreferences();
   const verdict = verdictOf(room);
   const badge = BADGE[verdict];
   const said = SAID[room.type_source];
@@ -171,20 +175,20 @@ function RoomCard({ room, index, active, onPick, children }: {
                 active && "active bg-accent hover:bg-accent")}>
         <span className="no pt-px font-mono text-xs tabular-nums text-muted-foreground">{index + 1}</span>
         <span className="kind flex min-w-0 items-center gap-1.5 text-[13px] font-medium">
-          <span className="truncate">{roomLabel(room, index)}</span>
-          {said && <sup className={`said ${room.type_source}`}>{said}</sup>}
+          <span className="truncate">{roomLabel(room, index, locale)}</span>
+          {said && <sup className={`said ${room.type_source}`}>{t(said)}</sup>}
         </span>
         <span className={cn("mark inline-flex h-5 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium [&_svg]:size-3",
                             badge.className)}>
-          {badge.icon}{badge.text}
+          {badge.icon}{t(badge.key)}
         </span>
         <span className="col-start-2 col-end-4 flex flex-wrap gap-x-3 font-mono text-[11.5px] tabular-nums text-muted-foreground">
-          <span>{typeLabel(room)}</span>
+          <span>{typeLabel(room, locale)}</span>
           {room.area_m2 !== null && <span className="area">{room.area_m2.toFixed(1)} m²</span>}
           {room.max_diameter_m !== null && (
-            <span>free Ø <span className="text-foreground/80">{room.max_diameter_m.toFixed(2)} m</span></span>
+            <span>{t("rooms.free")} <span className="text-foreground/80">{room.max_diameter_m.toFixed(2)} m</span></span>
           )}
-          {room.conforme !== null && <span>needs Ø {REQUIRED_DIAMETER_M.toFixed(2)} m</span>}
+          {room.conforme !== null && <span>{t("rooms.needs")} {REQUIRED_DIAMETER_M.toFixed(2)} m</span>}
         </span>
       </button>
       {children}
