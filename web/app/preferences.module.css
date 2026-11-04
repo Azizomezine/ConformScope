@@ -1,0 +1,114 @@
+/* Language + night-mode controls. Self-contained on purpose: the landing page has no
+   Tailwind (only /check loads tool.css), so these styles cannot rely on utilities. */
+
+.controls {
+  --pc-ink: #14213d;
+  --pc-muted: #3c4756;
+  --pc-surface: rgba(255, 255, 255, 0.72);
+  --pc-surface-hover: rgba(255, 255, 255, 0.95);
+  --pc-border: rgba(20, 33, 61, 0.18);
+  --pc-active-bg: #1d3557;
+  --pc-active-ink: #ffffff;
+  --pc-ring: #2a6f97;
+  --pc-size: 36px;
+
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+:global(:root[data-theme="dark"]) .controls {
+  --pc-ink: #edf2f8;
+  --pc-muted: #c2cedd;
+  --pc-surface: rgba(16, 28, 39, 0.72);
+  --pc-surface-hover: rgba(30, 47, 64, 0.95);
+  --pc-border: rgba(255, 255, 255, 0.2);
+  --pc-active-bg: #4ea8de;
+  --pc-active-ink: #0d1621;
+  --pc-ring: #8ccbf0;
+}
+
+@media (pointer: coarse) {
+  .controls { --pc-size: 44px; }
+}
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--pc-size);
+  padding: 3px;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.seg,
+.toggle {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 150ms ease-out, color 150ms ease-out, transform 120ms ease-out;
+}
+
+.seg {
+  display: inline-grid;
+  place-items: center;
+  height: 100%;
+  min-width: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.seg:hover { color: var(--pc-ink); background: var(--pc-surface-hover); }
+
+.seg[aria-pressed="true"] {
+  background: var(--pc-active-bg);
+  color: var(--pc-active-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  cursor: default;
+}
+
+.toggle {
+  display: inline-grid;
+  place-items: center;
+  width: var(--pc-size);
+  height: var(--pc-size);
+  padding: 0;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.toggle:hover { background: var(--pc-surface-hover); }
+.toggle svg { width: 16px; height: 16px; }
+
+.seg:active:not([aria-pressed="true"]),
+.toggle:active { transform: scale(0.94); }
+
+.seg:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg, .toggle { transition: none; }
+  .seg:active, .toggle:active { transform: none; }
+}

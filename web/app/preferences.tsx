@@ -4,6 +4,7 @@ import { Moon, Sun } from "lucide-react";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { translate, type I18nKey, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import styles from "./preferences.module.css";
 
 export type Theme = "light" | "dark";
 export type { Locale };
@@ -98,27 +99,22 @@ export function usePreferences(): Prefs {
 /** EN | FR segmented control plus a day/night toggle, for either page's header. */
 export function PreferenceControls({ className }: { className?: string }) {
   const { locale, theme, setLocale, setTheme, t } = usePreferences();
-  const seg = (active: boolean) =>
-    cn(
-      "min-h-8 cursor-pointer touch-manipulation px-2.5 py-1.5 text-xs font-semibold transition-[color,background-color,transform] duration-150 select-none active:scale-[0.96]",
-      active ? "bg-[var(--navy,#1d3557)] text-white shadow-sm" : "text-current opacity-60 hover:opacity-100",
-    );
+  const dark = theme === "dark";
   return (
-    <div className={cn("flex flex-none items-center gap-2", className)}>
-      <div role="group" aria-label={t("pref.language")}
-           className="flex items-center overflow-hidden rounded-full border border-current/25 bg-white/40 backdrop-blur-sm dark:bg-white/10">
-        <button type="button" aria-pressed={locale === "en"} title={t("pref.toEnglish")}
-                onClick={() => setLocale("en")} className={seg(locale === "en")}>EN</button>
-        <button type="button" aria-pressed={locale === "fr"} title={t("pref.toFrench")}
-                onClick={() => setLocale("fr")} className={seg(locale === "fr")}>FR</button>
+    <div className={cn(styles.controls, className)}>
+      <div role="group" aria-label={t("pref.language")} className={styles.segmented}>
+        <button type="button" lang="en" aria-pressed={locale === "en"} title={t("pref.toEnglish")}
+                onClick={() => setLocale("en")} className={styles.seg}>EN</button>
+        <button type="button" lang="fr" aria-pressed={locale === "fr"} title={t("pref.toFrench")}
+                onClick={() => setLocale("fr")} className={styles.seg}>FR</button>
       </div>
       <button type="button"
-              aria-pressed={theme === "dark"}
-              aria-label={theme === "dark" ? t("pref.toLight") : t("pref.toDark")}
-              title={theme === "dark" ? t("pref.toLight") : t("pref.toDark")}
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="grid size-9 cursor-pointer touch-manipulation place-items-center rounded-full border border-current/25 bg-white/40 backdrop-blur-sm transition-[background-color,transform] duration-150 select-none hover:bg-white/60 active:scale-[0.94] dark:bg-white/10 [&_svg]:size-4">
-        {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
+              aria-pressed={dark}
+              aria-label={t("pref.dark")}
+              title={dark ? t("pref.toLight") : t("pref.toDark")}
+              onClick={() => setTheme(dark ? "light" : "dark")}
+              className={styles.toggle}>
+        {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
       </button>
     </div>
   );
