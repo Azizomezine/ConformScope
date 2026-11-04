@@ -279,3 +279,19 @@ def test_a_vector_plan_reports_measuring_then_typing():
 
     assert events[0] == {"stage": "measuring"}
     assert set(e["stage"] for e in events) <= {"measuring", "typing"}
+
+
+def test_a_hairline_gap_in_a_partition_is_closed_but_a_doorway_stays_open():
+    import numpy as np
+    from conformscope.rooms import seal_hairline_gaps
+    px_per_m = 50.0
+    wall = np.zeros((200, 400), bool)
+    barrier = np.zeros_like(wall)
+    barrier[:, 100] = True
+    barrier[98:100, 100] = False      # a drawing slip, 0.04 m
+    barrier[:, 300] = True
+    barrier[50:100, 300] = False      # a doorway, 1.00 m
+    sealed = seal_hairline_gaps(wall, barrier, px_per_m)
+    assert sealed[98:100, 100].all()
+    assert not sealed[55:95, 300].any()
+    assert (sealed & ~barrier).sum() <= 4  # no line grows thicker

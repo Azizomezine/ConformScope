@@ -46,6 +46,7 @@ CLIP_M = 0.3              # how far a room may run past the region the walls clo
 SAME_ROOM_SHARE = 0.5     # a walls-only region this much inside a labelled room is that room
 MIN_WIDTH_M = 0.6         # narrower than this is a shaft or a gap, not a room
 SIMPLIFY_M = 0.02         # outline tolerance
+HAIRLINE_GAP_M = 0.05     # partition gaps under twice this are drawing slips, not openings
 SANITARY = {"wc", "bathroom"}
 SAM_MAX_OBJECTS = 16      # SAM 3.1 refuses a prompt with more objects than this
 
@@ -200,6 +201,20 @@ def _disk(radius_px: int) -> np.ndarray:
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius_px + 1, 2 * radius_px + 1))
 
 
+def seal_hairline_gaps(wall: np.ndarray, barrier: np.ndarray, px_per_m: float) -> np.ndarray:
+    """The partition lines with the hairline gaps at their corners closed.
+
+    A thin partition drawn as single lines often stops a pixel or two short of the
+    line it meets, and a room then leaks through that gap into the next one (a WC
+    into the kitchen units beside it). A closing fills gaps under 2 x HAIRLINE_GAP_M
+    without thickening any line, so every other room keeps its area; a doorway is
+    far wider and stays open.
+    """
+    r = max(1, int(HAIRLINE_GAP_M * px_per_m))
+    closed = cv2.morphologyEx((wall | barrier).astype(np.uint8), cv2.MORPH_CLOSE, _disk(r))
+    return barrier | (closed.astype(bool) & ~wall)
+
+
 def _no_progress(event: dict) -> None:
     pass
 
@@ -318,6 +333,7 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
         cv2.line(drawn, (round(ax), round(ay)), (round(bx), round(by)), 1, thickness=2)
     if drawn.any():
         barrier = barrier | drawn.astype(bool)
+    barrier = seal_hairline_gaps(wall, barrier, px_per_m)
     obstacles = extract.rasterize_paths(ex.obstacle_paths, rect, DPI, fill=False, stroke_px=2) & ~wall
     placards = extract.rasterize_placards(ex.placard_paths, rect, DPI) & ~wall
     cells = extract.fixture_cell_mask(ex, wall | barrier | obstacles | placards, DPI) & ~wall
