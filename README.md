@@ -30,9 +30,13 @@ Demo video: [`docs/media/demo.mp4`](docs/media/demo.mp4)
 
 ## 💡 Overview
 
-Homes get approved on paper. People in wheelchairs often find out a home doesn't work for them only after they move in. Today an engineer checks each plan by hand, room by room with a ruler, and a tired reviewer can miss things.
+**1.3 billion people, one in six of us, live with a significant disability** (WHO, 2022), and by 2050 one person in six on Earth will be over 65 (UN DESA). Yet in the United States fewer than **1 home in 100** is built for a wheelchair (HUD, 2015), and in England fewer than **1 in 10** homes can even be visited by a wheelchair user (English Housing Survey 2018-19). This isn't one country's problem. It's how homes get designed everywhere.
 
-**ConformScope** reads a building plan, finds every room, door and toilet, and checks them against French accessibility (**PMR**) rules using real geometry:
+Buildings get approved on paper. People with reduced mobility often find out a building doesn't work for them only after they move in. Today an engineer checks each plan by hand, room by room with a ruler, and a tired reviewer can miss things. Once the building is built, the mistake is set in concrete.
+
+**ConformScope** reads a building plan (an apartment, a house, or any building with rooms and doors), finds every room, door and toilet, and checks them against accessibility rules using real geometry. It starts with French **PMR** rules (*personnes à mobilité réduite*). The core checks are the same in accessibility codes around the world, so the thresholds are a short list of values that can change per country (see [Beyond France](#-beyond-france)).
+
+How a check works:
 
 1. **Upload a dossier.** One PDF becomes one dossier, with one sheet per page. Annex sheets (masse, situation, toiture, combles) are listed but not checked. Each sheet is checked when you open it, and the stages stream live to a progress bar.
 2. **Read the plan.** **Muse Spark** reads room names, room types, the scale and the door symbols. **SAM 3.1** outlines rooms on scanned or photographed plans. On vector PDFs, rooms come straight from the drawn walls.
@@ -45,6 +49,44 @@ Homes get approved on paper. People in wheelchairs often find out a home doesn't
 6. **Correct and export.** An auditor can fix the room layout by clicking: merge a nook into a room, draw a missing wall, or remove a fixture or door. Each correction is saved with the plan and applied again on every re-measure. One click exports a **PDF report**.
 
 The web app works in **English and French**, has light and dark themes, and includes a 3D scene where the plan rises into a building.
+
+---
+
+## 🎯 Who It's For & the Return on Investment
+
+ConformScope is built for the people who **approve or design** plans. The people who benefit in the end are the ones who **live** in the buildings.
+
+| Client | Their problem today | What ConformScope gives them |
+| --- | --- | --- |
+| **Architects & design offices** | Every revision of a plan needs another manual accessibility pass, and errors come back late through review comments. | A check in minutes on every revision, so issues get fixed while the plan is still a drawing. |
+| **Accessibility auditors & technical inspectors** | Hours per dossier spent measuring rooms and doors by hand, with the risk of missing one when tired. | Every room and door measured the same way every time. The auditor reviews the red ones, corrects in one click, and exports the report. |
+| **Developers & social-housing landlords** | A non-conforming home found at delivery means rework, delays, refused handovers or legal disputes. | Problems caught at design stage, plus a report to show buyers, tenants and authorities. |
+| **Public authorities (building permits)** | Too many dossiers to check each one in depth. | A fast first pass that points reviewers to the failures worth looking at. |
+| **People with reduced mobility & their families** (end users) | They find out a home doesn't work only after moving in. | Homes that have been checked before they are built, and a clear answer before signing. |
+
+### Where the ROI comes from
+
+- **Time per check:** a civil engineer took **8 hours** to check one apartment by hand. ConformScope checks the same apartment in about **5 minutes**, about **96× faster** and **99% less time**. The engineer's time goes to reviewing the failures instead of measuring with a ruler.
+- **Cost of a late fix:** moving a wall on a drawing costs an eraser. Moving it after the concrete is poured means demolition, rework and delay. Every failure caught on paper avoids the most expensive kind of fix.
+- **Consistency:** the same geometry runs on every plan. A tired Friday-evening check is as thorough as a fresh Monday-morning one.
+- **Scale:** one auditor can cover many more dossiers. That matters in countries where accessible-housing targets are growing faster than the number of experts.
+- **Social return:** every accessible home that gets built correctly is a home a wheelchair user, an older person or a parent with a stroller can actually live in.
+
+> **Example:** 8 h by hand → 5 min with ConformScope saves **7 h 55 min per apartment**. For an office that checks 100 apartments a year, that is about **790 engineer-hours a year**, roughly five months of full-time work. To estimate your own ROI, multiply 7 h 55 min by the number of apartments you check and by your hourly engineering cost.
+
+---
+
+## 🌍 Beyond France
+
+The rules ConformScope measures are not French-only. The same checks exist in accessibility codes worldwide:
+
+| Check | France (PMR), used today | Elsewhere (examples) |
+| --- | --- | --- |
+| Turning circle | Ø 1.50 m | ISO 21542: 1.50 m · US ADA: 60 in (1.525 m) · UK Part M4(3): 1.50 m |
+| Door width | 0.80 m interior, 0.90 m entrance | US ADA: 32 in (0.815 m) clear width |
+| WC transfer space | 0.80 × 1.30 m | Similar clear floor spaces in ADA and ISO 21542 |
+
+Today the thresholds are constants in the code (`turning.py`, `doors.py`, `fixtures.py`). Country presets selectable in the app are on the roadmap. The plan reading (Muse Spark), segmentation (SAM 3.1) and geometry work the same on any plan, whatever its language.
 
 ---
 

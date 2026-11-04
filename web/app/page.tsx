@@ -131,7 +131,7 @@ export default function Home() {
           <span className={styles.brand}><span className={styles.brandMark} aria-hidden />ConformScope</span>
           <nav className={styles.topnav} aria-label="Sections">
             <a href="#verdict">{t("nav.verdict")}</a>
-            <a href="#fonctionnalites">{t("nav.features")}</a>
+            <a href="#features">{t("nav.features")}</a>
           </nav>
           <PreferenceControls />
           <Link href="/check" className={styles.navCta}>{t("nav.check")}</Link>
@@ -229,7 +229,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="fonctionnalites" className={`${styles.wrap} ${styles.featuresSection}`}>
+      <section id="features" className={`${styles.wrap} ${styles.featuresSection}`}>
         <div className={styles.sectionHead}>
           <span className={styles.eyebrow}>{t("features.eyebrow")}</span>
           <h2>{t("features.title")}</h2>
@@ -246,7 +246,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="regles" className={`${styles.wrap} ${styles.featuresSection}`}>
+      <section id="rules" className={`${styles.wrap} ${styles.featuresSection}`}>
         <div className={styles.sectionHead}>
           <span className={styles.eyebrow}>{t("rules.eyebrow")}</span>
           <h2>{t("rules.title")}</h2>
