@@ -1,0 +1,21 @@
+{
+  "name": "conformscope-video",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Problem out/problem.mp4",
+    "render:overlay": "remotion render ProblemOverlay out/problem-overlay.mov --codec=prores --prores-profile=4444 --pixel-format=yuva444p10le"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.540",
+    "@remotion/google-fonts": "4.0.540",
+    "@remotion/transitions": "4.0.540",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "remotion": "4.0.540"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "typescript": "5.9.3"
+  }
+}

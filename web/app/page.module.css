@@ -255,6 +255,21 @@
 .feature h3 { font-size: 19px; letter-spacing: -0.01em; color: var(--ink); }
 .feature p { color: var(--ink-2); line-height: 1.6; font-size: 15px; }
 
+.rulesKicker { margin-top: 40px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.rules { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.rule { padding: 22px; border-radius: 18px; background: #fff; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.ruleValue { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--sea); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rule h3 { font-size: 16px; color: var(--ink); }
+.rule p { color: var(--ink-2); line-height: 1.55; font-size: 14px; flex: 1; }
+.ruleSource { align-self: flex-start; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; color: var(--ok); background: rgba(46, 125, 50, 0.1); }
+.ruleSource[data-confirm] { color: var(--muted); background: rgba(120, 130, 140, 0.12); }
+.rulesImpact { margin-top: 18px; max-width: 720px; font-size: 17px; line-height: 1.6; color: var(--ink); font-weight: 600; }
+.rulesNext { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; list-style: none; padding: 0; }
+.rulesNext li { padding: 8px 14px; border-radius: 999px; border: 1px dashed var(--line); color: var(--muted); font-size: 14px; font-weight: 600; }
+@media (max-width: 1100px) { .rules { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .rules { grid-template-columns: 1fr; } }
+:global(:root[data-theme="dark"]) .rule { background: #101c29; }
+
 .ctaBand { margin: 64px 0 80px; padding: 56px 40px; border-radius: 26px; color: #fff; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px;
   background: radial-gradient(ellipse 60% 80% at 80% 0%, rgba(78, 168, 222, 0.45), transparent 60%), linear-gradient(135deg, #14213d, #1d3557 55%, #2a6f97); }
 .ctaBand h2 { color: #fff; }

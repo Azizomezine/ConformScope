@@ -1,0 +1,4 @@
+node_modules/
+out/
+# screen recordings: large, and may show uploaded plans
+public/rec/

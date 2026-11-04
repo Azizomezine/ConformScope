@@ -117,8 +117,70 @@ class Room:
         return (self.anchor_center[0] * px_to_pt, self.anchor_center[1] * px_to_pt)
 
 
+    @classmethod
+    def _from_crop(cls, crop_mask: np.ndarray, origin: tuple, shape: tuple,
+                   **fields) -> "Room":
+        """A Room built from a mask already cropped to its own extent.
+
+        `__post_init__` finds that crop by scanning a page-sized mask; a caller
+        that already holds the crop (segmentation, working label by label over
+        each label's own box) skips a page scan per room -- on an A0 sheet a
+        page scan per room is what made a level take minutes.
+        """
+        room = object.__new__(cls)
+        room.number = fields["number"]
+        room.area_m2 = fields["area_m2"]
+        room.bbox = fields["bbox"]
+        room.max_clearance_m = fields["max_clearance_m"]
+        room.best_center = fields["best_center"]
+        room.fixture_density = fields["fixture_density"]
+        room.name = fields.get("name", "")
+        room.apartment = fields.get("apartment", "")
+        room.room_type = fields.get("room_type", "inconnu")
+        room.provenance = fields.get("provenance")
+        room.existence = fields.get("existence")
+        room.phantom = fields.get("phantom", False)
+        room.anchor_center = fields.get("anchor_center") or room.best_center
+        ys, xs = np.nonzero(crop_mask)
+        if len(xs) == 0:
+            room.origin, room.crop = (0, 0), np.zeros((0, 0), bool)
+        else:
+            x0, y0 = int(xs.min()), int(ys.min())
+            room.origin = (origin[0] + x0, origin[1] + y0)
+            room.crop = crop_mask[y0:int(ys.max()) + 1, x0:int(xs.max()) + 1].copy()
+        room.shape = shape
+        return room
+
+
 # Set after the class: inside it, `mask` is the dataclass's init argument.
 Room.mask = property(Room.full_mask)
+
+
+def _label_boxes(labels: np.ndarray) -> dict[int, tuple[int, int, int, int]]:
+    """Each label's bounding box as (x0, y0, x1, y1), ends exclusive, in one
+    pass over the labelled pixels -- not one page scan per label."""
+    h, w = labels.shape
+    flat = labels.ravel()
+    idx = np.flatnonzero(flat)
+    if not len(idx):
+        return {}
+    labs = flat[idx].astype(np.int64)
+    top = int(labs.max())
+    if (top + 1) * (h + w) > 64_000_000:  # presence tables would dwarf the page
+        x0 = np.full(top + 1, w); x1 = np.full(top + 1, -1)
+        y0 = np.full(top + 1, h); y1 = np.full(top + 1, -1)
+        np.minimum.at(y0, labs, idx // w); np.maximum.at(y1, labs, idx // w)
+        np.minimum.at(x0, labs, idx % w); np.maximum.at(x1, labs, idx % w)
+        return {int(lab): (int(x0[lab]), int(y0[lab]), int(x1[lab]) + 1, int(y1[lab]) + 1)
+                for lab in np.unique(labs)}
+    rows = np.zeros((top + 1, h), bool)
+    rows[labs, idx // w] = True
+    cols = np.zeros((top + 1, w), bool)
+    cols[labs, idx % w] = True
+    y0 = np.argmax(rows, axis=1); y1 = h - np.argmax(rows[:, ::-1], axis=1)
+    x0 = np.argmax(cols, axis=1); x1 = w - np.argmax(cols[:, ::-1], axis=1)
+    return {int(lab): (int(x0[lab]), int(y0[lab]), int(x1[lab]), int(y1[lab]))
+            for lab in np.unique(labs)}
 
 
 def _disk(radius_px: int) -> np.ndarray:
@@ -129,13 +191,23 @@ def _disk(radius_px: int) -> np.ndarray:
 def _grow_along(labels: np.ndarray, allowed: np.ndarray, steps: int) -> np.ndarray:
     """Grow each label into unlabelled `allowed` pixels, one pixel a step --
     a distance measured along the floor, so it never crosses a wall."""
-    lab = labels.astype(np.float32)
+    # uint16 dilation is ~2x faster than float32 in OpenCV and holds every
+    # label count a sheet can produce; fall back only past 65535 labels.
+    peak = int(labels.max()) if labels.size else 0
+    lab = labels.astype(np.uint16 if 0 < peak <= 65535 else np.float32)
     kernel = np.ones((3, 3), np.uint8)
+    # `allowed` can arrive as int64 (a bool & int promotion upstream): as an
+    # index array instead of a mask it would explode the fancy indexing below.
+    remaining = (lab == 0) & np.asarray(allowed, dtype=bool)
     for _ in range(steps):
-        open_ = (lab == 0) & allowed
-        if not open_.any():
+        if not remaining.any():
             break
-        lab = np.where(open_, cv2.dilate(lab, kernel), lab)
+        grown = cv2.dilate(lab, kernel)
+        fresh = remaining & (grown != 0)
+        if not fresh.any():
+            break
+        lab[fresh] = grown[fresh]
+        remaining[fresh] = False
     return lab.astype(np.int32)
 
 
@@ -185,11 +257,13 @@ def _adopt_couloirs(labels: np.ndarray, floor: np.ndarray, px_per_m: float,
     for lab in area:
         if lab and root(("room", lab)) != ("room", lab):
             groups.setdefault(root(("room", lab)), []).append(("room", lab))
+    room_boxes = _label_boxes(labels)
+
     def box(m) -> tuple[int, int, int, int]:
         """The member's bounding box, (y0, y1, x0, x1) with exclusive ends."""
         if isinstance(m, tuple):
-            ys, xs = np.nonzero(labels == m[1])
-            return int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
+            x0, y0, x1, y1 = room_boxes[m[1]]
+            return y0, y1, x0, x1
         y0, x0, own = pieces[m]
         return y0, y0 + own.shape[0], x0, x0 + own.shape[1]
 
@@ -269,11 +343,15 @@ def refit_with_extra_obstacles(room: "Room", extra_obstacle_mask: np.ndarray,
     anchor the moment its type makes this pass run. Only a temporary working
     mask feeds the circle fit.
     """
-    working = room.mask & ~extra_obstacle_mask
-    room.max_clearance_m, room.best_center = _fit_circle(working, room.bbox, px_per_m)
-    x0, y0, x1, y1 = room.bbox
-    merged = obstacle_mask | extra_obstacle_mask
-    room.fixture_density = float(merged[y0:y1 + 1, x0:x1 + 1].mean())
+    # Work over the room's own crop only: room.mask builds a page-sized array.
+    ox, oy = room.origin
+    h, w = room.crop.shape
+    window = (slice(oy, oy + h), slice(ox, ox + w))
+    working = room.crop & ~extra_obstacle_mask[window]
+    room.max_clearance_m, (cx, cy) = _fit_circle(working, (0, 0, w - 1, h - 1), px_per_m)
+    room.best_center = (cx + ox, cy + oy)
+    merged = obstacle_mask[window] | extra_obstacle_mask[window]
+    room.fixture_density = float(merged.mean())
 
 
 def building_outline(wall_mask: np.ndarray, px_per_m: float) -> np.ndarray | None:
@@ -360,7 +438,10 @@ def segment_rooms(wall_mask: np.ndarray, barrier_mask: np.ndarray,
     # along the floor, never through a wall or a sealed doorway, so a room
     # regrows only into space it is open to. Anything farther (e.g. the
     # outdoors) does not belong to a room.
-    doors = door_mask.astype(bool) if door_mask is not None else False
+    # A scalar False here would promote `floor` to int64 (bool & ~False):
+    # eight times the memory for every mask derived from it, page-wide.
+    doors = door_mask.astype(bool) if door_mask is not None \
+        else np.zeros(wall_mask.shape, bool)
     floor = before_fixtures & ~doors
     reach = int(DOOR_CLOSE_M * px_per_m + 2)
     full_labels = _grow_along(seeds, floor, reach)
@@ -380,10 +461,14 @@ def segment_rooms(wall_mask: np.ndarray, barrier_mask: np.ndarray,
     # room claimed outside it is found by no correction and stays unfulfilled.
     building = building_outline(wall_mask, px_per_m)
 
-    def kept(lab, whole) -> bool:
-        if building is not None and 2 * (whole & building).sum() < whole.sum():
-            return False
-        return (whole.sum() / px_per_m ** 2 >= MIN_ROOM_M2
+    def kept(lab, whole, origin, count) -> bool:
+        if building is not None:
+            x0, y0 = origin
+            inside = (whole & building[y0:y0 + whole.shape[0],
+                                        x0:x0 + whole.shape[1]]).sum()
+            if 2 * inside < count:
+                return False
+        return (count / px_per_m ** 2 >= MIN_ROOM_M2
                 or lab in small_couloirs)
     rooms = _rooms(full_labels, free, obstacle_mask, fixture_mask, px_per_m, kept)
     return free, dist, rooms
@@ -391,30 +476,38 @@ def segment_rooms(wall_mask: np.ndarray, barrier_mask: np.ndarray,
 
 def _rooms(full_labels: np.ndarray, free: np.ndarray, obstacle_mask: np.ndarray,
            fixture_mask: np.ndarray | None, px_per_m: float,
-           kept=lambda lab, whole: True, existence: str | None = None) -> list[Room]:
-    """One Room per label, its circle fit in its own free floor."""
+           kept=lambda lab, whole, origin, count: True,
+           existence: str | None = None) -> list[Room]:
+    """One Room per label, its circle fit in its own free floor.
+
+    Every label is worked over its own bounding box only: building a
+    page-sized mask per room (and scanning it again in Room.__post_init__)
+    cost a page pass per room, minutes and gigabytes on a big sheet.
+    """
     solid = obstacle_mask if fixture_mask is None else obstacle_mask | fixture_mask
     rooms = []
-    for lab in np.unique(full_labels):
-        if lab == 0:
+    for lab, (x0, y0, x1, y1) in sorted(_label_boxes(full_labels).items()):
+        whole = full_labels[y0:y1, x0:x1] == lab
+        if not kept(lab, whole, (x0, y0), int(whole.sum())):
             continue
-        whole = full_labels == lab
-        if not kept(lab, whole):
-            continue
-        mask = whole & free
+        mask = whole & free[y0:y1, x0:x1]
         if not mask.any():
             continue
         area_m2 = mask.sum() / px_per_m ** 2
         ys, xs = np.nonzero(mask)
-        bbox = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+        bbox = (int(xs.min()) + x0, int(ys.min()) + y0,
+                int(xs.max()) + x0, int(ys.max()) + y0)
         # Per-room distance transform: the circle must fit inside this
         # room's own free space, not borrow clearance through a doorway.
-        max_clear, best_center = _fit_circle(mask, bbox, px_per_m)
+        max_clear, (cx, cy) = _fit_circle(
+            mask, (bbox[0] - x0, bbox[1] - y0, bbox[2] - x0, bbox[3] - y0), px_per_m)
         sub_obst = solid[bbox[1]:bbox[3] + 1, bbox[0]:bbox[2] + 1]
         density = float(sub_obst.mean())
-        rooms.append(Room(number=int(lab), mask=mask, area_m2=float(area_m2), bbox=bbox,
-                          max_clearance_m=max_clear, best_center=best_center,
-                          fixture_density=density, existence=existence))
+        rooms.append(Room._from_crop(
+            mask, (x0, y0), full_labels.shape, number=int(lab),
+            area_m2=float(area_m2), bbox=bbox, max_clearance_m=max_clear,
+            best_center=(cx + x0, cy + y0), fixture_density=density,
+            existence=existence))
     rooms.sort(key=lambda r: (r.bbox[0], r.bbox[1]))
     return rooms
 
@@ -535,13 +628,15 @@ def segment_seeded(wall_mask: np.ndarray, barrier_mask: np.ndarray,
     # The same floor under a room as segment_rooms keeps: a seed on the sliver
     # a placard's fill leaves is no room (docs/adr/0012), a dégagement between
     # doors is one.
-    def kept(lab, whole) -> bool:
-        area_m2 = whole.sum() / px_per_m ** 2
+    def kept(lab, whole, origin, count) -> bool:
+        area_m2 = count / px_per_m ** 2
         if area_m2 >= MIN_ROOM_M2:
             return True
+        x0, y0 = origin
         return area_m2 >= MIN_COULOIR_M2 and bool(
             (cv2.dilate(whole.astype(np.uint8), np.ones((3, 3), np.uint8))
-             .astype(bool) & doors).any())
+             .astype(bool) & doors[y0:y0 + whole.shape[0],
+                                   x0:x0 + whole.shape[1]]).any())
     rooms = _rooms(labels, free, obstacle_mask, fixture_mask, px_per_m, kept,
                    existence="ai")
     return free, dist, rooms

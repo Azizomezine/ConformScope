@@ -135,6 +135,17 @@ def measured_body(measured) -> dict:
             "warnings": measured.warnings}
 
 
+def _build_report_closing(title: str, parts) -> bytes:
+    """Build the report, then close the sheet PNGs it was built from: each is
+    a full plan image decoded in memory, and a dossier can hold many."""
+    try:
+        return build_report(title, parts)
+    finally:
+        for part in parts:
+            if part.image is not None:
+                part.image.close()
+
+
 def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = make_client,
                verifier_client: Callable = make_verifier_client,
                heartbeat_s: float = HEARTBEAT_S) -> FastAPI:
@@ -181,7 +192,8 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         folder.mkdir(parents=True)
         try:
             original = folder / ("original" + suffix)
-            original.write_bytes(file.file.read())
+            with original.open("wb") as out:  # streamed: holding a whole plan in RAM spikes memory on big PDFs
+                shutil.copyfileobj(file.file, out, length=1024 * 1024)
             try:
                 sheets = read_sheets(original)
                 if suffix != ".pdf":
@@ -331,7 +343,7 @@ def create_app(data_dir: str | Path = ".data/plans", model_client: Callable = ma
         if not any(part.body and part.body.get("checked") for part in parts):
             raise HTTPException(409, "Open and check a sheet before asking for its report")
         title = request.query_params.get("name") or "Plan dossier"
-        pdf = build_report(title, parts)
+        pdf = _build_report_closing(title, parts)
         stem = re.sub(r"[^\w.-]+", "-", Path(title).stem).strip("-") or "dossier"
         return Response(pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="conformscope-report-{stem}.pdf"'})

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Accessibility, ArrowRight, DoorOpen, Download, FileText, Pause, Play, RotateCcw, Sparkles, Undo2, WandSparkles, X,
+  Accessibility, ArrowRight, DoorOpen, Download, FileText, ListChecks, Pause, Play, RotateCcw, Sparkles, Undo2, WandSparkles, X,
 } from "lucide-react";
 import { Block, Key, Mark } from "@/components/Cartouche";
 import ExportReport from "@/components/ExportReport";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   doorSides, roomLabel, type Correction, type ExplainResult, type PlanReading, type Walk,
 } from "@/lib/plan";
+import { scoreRules, type RuleScore } from "@/lib/rules";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/app/preferences";
 
@@ -73,6 +74,8 @@ export default function ReportPane({
         </Button>
       </PaneHeader>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
+        <RulesScore scores={scoreRules(reading, walk)} />
+
         <Block>
           <Key>{t("report.turning")}</Key>
           <div className="mt-1.5 flex items-baseline gap-2.5 font-mono">
@@ -294,6 +297,51 @@ export default function ReportPane({
         <Legend />
       </div>
     </section>
+  );
+}
+
+/** Every rule at a glance: how many pass, against which value and which text. */
+function RulesScore({ scores }: { scores: RuleScore[] }) {
+  const { t } = usePreferences();
+  // Every room, door and space judged is one check; the walk is built on them.
+  const measured = scores.filter((s) => s.rule.id !== "walk");
+  const checks = measured.reduce((n, s) => n + s.total, 0);
+  const fails = measured.reduce((n, s) => n + s.total - s.passed, 0);
+  const rules = scores.filter((s) => s.total > 0).length;
+  return (
+    <Block>
+      <Key className="flex items-center gap-1.5"><ListChecks className="size-3.5" />{t("score.title")}</Key>
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1 font-mono">
+        <span className="text-[28px] leading-none font-medium">{checks}</span>
+        <span className="font-sans text-[13px] text-muted-foreground">{t("score.summary", { rules, fails })}</span>
+      </div>
+      <ul className="mt-2.5 grid min-w-0 grid-cols-1 gap-1.5">
+        {scores.map(({ rule, passed, total }) => {
+          const ok = total === 0 ? null : passed === total;
+          return (
+            <li key={rule.id}
+                className={cn("grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2.5 rounded-md border px-2.5 py-1.5 text-xs",
+                  ok === null ? "border-secondary text-muted-foreground"
+                    : ok ? "border-conforme/30 bg-conforme/5" : "border-non-conforme/30 bg-non-conforme/5")}>
+              <span aria-hidden className={cn("mt-1 size-2 rounded-full",
+                ok === null ? "bg-pas-verifie/40" : ok ? "bg-conforme" : "bg-non-conforme")} />
+              <span className="min-w-0">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="font-medium text-foreground">{t(rule.name)}</span>
+                  <span className={cn("shrink-0 font-mono", ok === false && "text-non-conforme", ok && "text-conforme")}>
+                    {total === 0 ? t("score.none")
+                      : `${passed}/${total}${rule.id === "walk" ? ` ${t("score.walkUnit")}` : ""}`}
+                  </span>
+                </span>
+                <span className="block text-[11px] break-words text-muted-foreground">
+                  <span className="font-mono whitespace-nowrap">{rule.value}</span> · {t(rule.source)}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </Block>
   );
 }
 

@@ -13,6 +13,8 @@ const inChapter = (p: number, i: number, share = 1) => {
   return clamp01((p - a) / ((b - a) * share));
 };
 
+const RED = new THREE.Color(0xc62828);
+const GREEN = new THREE.Color(0x2e7d32);
 const PAPER = new THREE.Color(0xf7f9fb);
 const INK = new THREE.Color(0x1d3557);
 const WHITE = new THREE.Color(0xffffff);
@@ -339,7 +341,12 @@ export function BuildingScene({
     const ro = new ResizeObserver(resize);
     ro.observe(host);
 
+    let visible = true;
     const tick = (now: number) => {
+      // Off-screen: stop the loop entirely (the observer restarts it).
+      // Rendering at full DPR with shadows while the reader is elsewhere
+      // on the page was a permanent GPU/CPU drain.
+      if (!visible) { raf = 0; return; }
       raf = requestAnimationFrame(tick);
       const goal = clamp01(progressRef.current);
       const prevNow = lastNow; lastNow = now;
@@ -378,7 +385,7 @@ export function BuildingScene({
         wall.position.y = wall.scale.y / 2 + 0.02;
       }
       const pulse = reducedMotion ? 1 : 0.75 + 0.25 * Math.sin(now / 260);
-      const RED = new THREE.Color(0xc62828); const GREEN = new THREE.Color(0x2e7d32);
+      // RED/GREEN are module constants: allocating them per frame churned GC.
       for (const c of circles) {
         // The fix: the failing circle grows to the required size and turns green.
         const grow = c.ok ? 1 : 1 + fixT * (TURNING_DIAMETER_M / failing.circle.diameterM - 1);
@@ -423,7 +430,14 @@ export function BuildingScene({
     };
     raf = requestAnimationFrame(tick);
 
+    const io = new IntersectionObserver(([entry]) => {
+      const was = visible;
+      visible = entry.isIntersecting;
+      if (visible && !was && !raf) { lastNow = null; raf = requestAnimationFrame(tick); }
+    }, { threshold: 0.02 });
+    io.observe(host);
     return () => {
+      io.disconnect();
       cancelAnimationFrame(raf);
       ro.disconnect();
       scene.traverse((obj) => {

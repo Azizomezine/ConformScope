@@ -375,8 +375,27 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
         mask = grown.full_mask()
         region = next((r for r in walls_only if r.contains(x, y)), None)
         if region is not None:
-            mask &= cv2.dilate(region.full_mask().astype(np.uint8), clip).astype(bool)
-        mask &= ~claimed
+            # The clip dilation, over the grown room's window only: dilating a
+            # page-sized mask per label cost a page pass per room.
+            gx, gy = grown.origin
+            gh, gw = grown.crop.shape
+            rad = (clip.shape[0] - 1) // 2
+            x0, y0 = max(0, gx - rad), max(0, gy - rad)
+            x1, y1 = min(mask.shape[1], gx + gw + rad), min(mask.shape[0], gy + gh + rad)
+            canvas = np.zeros((y1 - y0, x1 - x0), np.uint8)
+            rx, ry = region.origin
+            rh, rw = region.crop.shape
+            cx0, cy0 = max(rx, x0), max(ry, y0)
+            cx1, cy1 = min(rx + rw, x1), min(ry + rh, y1)
+            if cx1 > cx0 and cy1 > cy0:
+                canvas[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0] = \
+                    region.crop[cy0 - ry:cy1 - ry, cx0 - rx:cx1 - rx]
+            dilated = cv2.dilate(canvas, clip).astype(bool)
+            window = (slice(gy, gy + gh), slice(gx, gx + gw))
+            mask[window] &= dilated[gy - y0:gy - y0 + gh, gx - x0:gx - x0 + gw]
+            mask[window] &= ~claimed[window]
+        else:
+            mask &= ~claimed
         if not mask.any():
             continue
         claimed |= mask
@@ -384,9 +403,14 @@ def vector_rooms(client, doc, plan: Plan, reading: RoomReading, corrections=None
 
     spare = []  # floor too small to be a room, still claimable by a merge (issue #6)
     for region in walls_only:
-        whole = region.full_mask()
-        if (whole & claimed).sum() > SAME_ROOM_SHARE * whole.sum():
+        # Overlap in the region's own window; a page mask is built only for
+        # a region that survives, not one per region tried.
+        rx, ry = region.origin
+        rh, rw = region.crop.shape
+        window = claimed[ry:ry + rh, rx:rx + rw]
+        if (region.crop & window).sum() > SAME_ROOM_SHARE * region.crop.sum():
             continue
+        whole = region.full_mask()
         mask = whole & ~claimed
         if mask.sum() / px_per_m ** 2 < geometry.MIN_ROOM_M2:
             spare.append(mask)

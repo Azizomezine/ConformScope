@@ -7,6 +7,7 @@ import styles from "./page.module.css";
 import { DEMO_ROOMS, DEMO_STEPS, DEMO_STEPS_EN, PLAN_H, PLAN_W, STORY_INTRO, TURNING_DIAMETER_M, chapterAt, chapterRange } from "./demo-plan";
 import { PreferenceControls, usePreferences } from "./preferences";
 import type { I18nKey } from "@/lib/i18n";
+import { NEXT_RULES, RULES } from "@/lib/rules";
 
 const BuildingScene = dynamic(
   () => import("./building-scene").then((m) => m.BuildingScene),
@@ -243,6 +244,30 @@ export default function Home() {
             </article>
           ))}
         </div>
+      </section>
+
+      <section id="regles" className={`${styles.wrap} ${styles.featuresSection}`}>
+        <div className={styles.sectionHead}>
+          <span className={styles.eyebrow}>{t("rules.eyebrow")}</span>
+          <h2>{t("rules.title")}</h2>
+          <p>{t("rules.body")}</p>
+        </div>
+        <h3 className={styles.rulesKicker}>{t("rules.checked")}</h3>
+        <div className={styles.rules}>
+          {RULES.map((rule) => (
+            <article key={rule.id} className={styles.rule}>
+              <span className={styles.ruleValue}>{rule.value}</span>
+              <h3>{t(rule.name)}</h3>
+              <p>{t(rule.text)}</p>
+              <span className={styles.ruleSource} data-confirm={rule.id === "washbasin" || undefined}>{t(rule.source)}</span>
+            </article>
+          ))}
+        </div>
+        <p className={styles.rulesImpact}>{t("rules.impact", { rules: RULES.length })}</p>
+        <h3 className={styles.rulesKicker}>{t("rules.next")}</h3>
+        <ul className={styles.rulesNext}>
+          {NEXT_RULES.map((key) => <li key={key}>{t(key)}</li>)}
+        </ul>
       </section>
 
       <section className={styles.wrap}>

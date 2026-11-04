@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useRef, useState } from "react";
 import PlanToolbar, { Tool, ZOOM_MAX, ZOOM_MIN } from "@/components/PlanToolbar";
 import {
   centreOf, doorSides, roomLabel, sheetImageUrl, typeLabel, REQUIRED_DIAMETER_M,
@@ -364,7 +364,8 @@ export default function PlanViewer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- finishDraft reads only draftPts/tool, both deps
+  }, [tool, draftPts]);
 
   /** Zoom from the toolbar: about the centre of the view, not a cursor. Springs
    *  from the current value and keeps any in-flight velocity. */
@@ -378,6 +379,12 @@ export default function PlanViewer({
     if (!referenceTrusted) return;
     setReference((c) => (c ? null : [view.x + w / 2, view.y + h / 2]));
   }
+
+  // Stable across walk-animation frames (the parent re-renders at 60fps while
+  // the wheelchair rolls): the memoised shapes below can then skip re-render.
+  const pickRoom = useCallback((i: number) => {
+    if (!correcting && tool === "select") onPick(active === i ? null : i);
+  }, [correcting, tool, onPick, active]);
 
   const rooms = reading?.rooms ?? [];
   // Struck in plan order, left to right, the way an auditor works across a sheet.
@@ -412,22 +419,20 @@ export default function PlanViewer({
         <image href={sheetImageUrl(sheet.id, sheet.page)} x={x0} y={y0} width={x1 - x0} height={y1 - y0} />
 
         {rooms.map((room, i) => (
-          <RoomShape key={i} room={room} index={i} metre={metre} unit={unit} k={view.k}
+          <MemoRoomShape key={i} room={room} index={i} metre={metre} unit={unit} k={view.k}
                      active={active === i} strikeIndex={order.get(i) ?? 0}
-                     onPick={() => {
-                       if (!correcting && tool === "select") onPick(active === i ? null : i);
-                     }} />
+                     onPick={pickRoom} />
         ))}
 
         <g className="fixtures">
           {(reading?.fixtures ?? []).map((fixture, i) => (
-            <FixtureShape key={i} fixture={fixture} />
+            <MemoFixtureShape key={i} fixture={fixture} />
           ))}
         </g>
 
         <g className="doors">
           {(reading?.doors ?? []).map((door, i) => (
-            <DoorShape key={i} door={door} rooms={rooms} />
+            <MemoDoorShape key={i} door={door} rooms={rooms} />
           ))}
         </g>
 
@@ -460,9 +465,9 @@ export default function PlanViewer({
 
         <g className="measures">
           {metre !== null && measures.map((m) => (
-            <Cote key={m.id} m={m} k={view.k} unit={unit} metre={metre} />
+            <MemoCote key={m.id} m={m} k={view.k} unit={unit} metre={metre} />
           ))}
-          {draft && metre !== null && <Cote m={draft} k={view.k} unit={unit} metre={metre} draft />}
+          {draft && metre !== null && <MemoCote m={draft} k={view.k} unit={unit} metre={metre} draft />}
         </g>
 
         {reference && metre !== null && (
@@ -578,7 +583,7 @@ function Cote({ m, k, unit, metre, draft = false }: {
 
 function RoomShape({ room, index, metre, unit, k, active, strikeIndex, onPick }: {
   room: Room; index: number; metre: number | null; unit: number; k: number;
-  active: boolean; strikeIndex: number; onPick: () => void;
+  active: boolean; strikeIndex: number; onPick: (index: number) => void;
 }) {
   const { locale } = usePreferences();
   const verdict = room.conforme === null ? "" : room.conforme ? "conforme" : "non-conforme";
@@ -588,7 +593,7 @@ function RoomShape({ room, index, metre, unit, k, active, strikeIndex, onPick }:
   const flagged = room.warnings.length > 0;
 
   return (
-    <g className={`room${active ? " active" : ""}`} onClick={onPick}>
+    <g className={`room${active ? " active" : ""}`} onClick={() => onPick(index)}>
       <title>{`${roomLabel(room, index, locale)} · ${typeLabel(room, locale)}${room.verdict ? ` · ${room.verdict}` : ""}`}</title>
       <polygon points={room.polygon_px.map(([x, y]) => `${x},${y}`).join(" ")}
                className={`outline ${verdict}${flagged ? " flagged" : ""}`} />
@@ -612,6 +617,15 @@ function RoomShape({ room, index, metre, unit, k, active, strikeIndex, onPick }:
     </g>
   );
 }
+
+// Memoised: PlanViewer re-renders every animation frame while the walk
+// rolls or the view springs, but a room/fixture/door shape only changes
+// when the reading or the zoom does. Without this, each frame re-created
+// every polygon string on the sheet -- the freeze on big plans.
+const MemoRoomShape = memo(RoomShape);
+const MemoFixtureShape = memo(FixtureShape);
+const MemoDoorShape = memo(DoorShape);
+const MemoCote = memo(Cote);
 
 function FixtureShape({ fixture }: { fixture: Fixture }) {
   const pts = (polygon: Pt[]) => polygon.map(([x, y]) => `${x},${y}`).join(" ");

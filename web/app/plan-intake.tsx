@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Accessibility, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleDashed, Combine,
   DoorClosed, FileText, FileUp, PackageX, PenLine, RotateCcw, Ruler,
@@ -82,6 +82,12 @@ export function PlanIntake() {
   const [explain, setExplain] = useState<ExplainResult | null>(null);
   const [explaining, setExplaining] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
+  // Stable identities: a new arrow per render would defeat the memoised plan
+  // shapes while the walk animation re-renders this screen every frame.
+  const pickActive = useCallback((i: number | null) => setActive(i), []);
+  const pickRoomFromList = useCallback((i: number | null) => {
+    setMode("none"); setPending(null); setActive(i);
+  }, []);
   const busy = checking || replaying || sent !== null;
 
   // Walk the plan (issue #14): the route, and how many of its legs the icon has rolled.
@@ -525,7 +531,7 @@ export function PlanIntake() {
               <PlanViewer key={`${dossier.id}-${shown.page}`}
                           sheet={{ id: shown.id, page: shown.page, width: shown.width, height: shown.height }}
                           reading={drawn} active={active}
-                          onPick={(i) => setActive(i)}
+                          onPick={pickActive}
                           correcting={mode !== "none" && !busy} onPoint={onPoint}
                           pending={pointToFix(pending)}
                           walk={frame} toolbarExtra={correctionTools} />
@@ -551,7 +557,7 @@ export function PlanIntake() {
           rooms={
             <RoomsPane
               rooms={shown.rooms} active={active}
-              onPick={(i) => { setMode("none"); setPending(null); setActive(i); }}
+              onPick={pickRoomFromList}
               notices={
                 <>
                   {shown.scale_source === "assumed" && (
