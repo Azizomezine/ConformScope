@@ -16,7 +16,15 @@ const C = {ink: '#0d1a2e', navy: '#1d3557', sky: '#4ea8de', paper: '#f4f7fb', mu
  */
 export const DEMO: {file: string | null; seconds: number} = {file: null, seconds: 50};
 
-type Punch = {from: number; to: number; x: number; y: number; zoom: number; label?: string; bad?: boolean};
+/**
+ * Your face, recorded as its own file while you narrate over the screen clip
+ * (OBS + NVIDIA Broadcast, see SCRIPT.md). `offset` = seconds into the cam
+ * file where the screen clip's frame 0 is (clap your hands at the start to
+ * find it). It stays put while the screen zooms.
+ */
+export const CAM: {file: string | null; offset: number} = {file: null, offset: 0};
+
+type Punch ={from: number; to: number; x: number; y: number; zoom: number; label?: string; bad?: boolean};
 export const PUNCHES: Punch[] = [
   // Example, the money shot: the red circle and its Ø label.
   // {from: 22, to: 27, x: 0.42, y: 0.55, zoom: 2.4, label: 'Ø1.20 m — needs Ø1.50 m', bad: true},
@@ -65,6 +73,30 @@ export const DemoCut: React.FC = () => {
       <AbsoluteFill style={{transform: `scale(${cam.zoom}) translate(${tx * cam.k}px, ${ty * cam.k}px)`}}>
         <OffthreadVideo src={staticFile(DEMO.file)} muted style={{width: '100%', height: '100%'}} />
       </AbsoluteFill>
+      {CAM.file && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 48,
+            bottom: 48,
+            width: 300,
+            height: 300,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            border: `6px solid ${C.paper}`,
+            boxShadow: '0 20px 50px #0008',
+            // Shrinks a little during a punch-in so the zoomed detail wins.
+            transform: `scale(${1 - 0.25 * cam.k})`,
+            transformOrigin: 'bottom right',
+          }}
+        >
+          <OffthreadVideo
+            src={staticFile(CAM.file)}
+            trimBefore={Math.round(CAM.offset * fps)}
+            style={{width: '100%', height: '100%', objectFit: 'cover'}}
+          />
+        </div>
+      )}
       {cam.punch?.label && (
         <div
           style={{
