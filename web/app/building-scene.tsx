@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
-import { DEMO_ROOMS, PLAN_H, PLAN_W, WALL_H, chapterAt, chapterRange } from "./demo-plan";
+import { DEMO_DOORS, DEMO_PATH, DEMO_PATH_END, DEMO_ROOMS, PLAN_H, PLAN_W, TURNING_DIAMETER_M, WALL_H, chapterAt, chapterRange } from "./demo-plan";
 import { stepSpring } from "../lib/spring";
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -156,11 +156,27 @@ export function BuildingScene({
         const [x2, y2] = room.polygon[(i + 1) % room.polygon.length];
         const len = Math.hypot(x2 - x1, y2 - y1);
         if (len < 0.01) continue;
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(len + 0.14, 1, 0.14), wallMat);
-        wall.position.set((x1 + x2) / 2 - PLAN_W / 2, 0.5, (y1 + y2) / 2 - PLAN_H / 2);
-        wall.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
-        wall.castShadow = true; wall.receiveShadow = true;
-        building.add(wall); walls.push(wall);
+        // Leave a 0.92 m gap where a door centre sits on this edge.
+        let spans: [number, number][] = [[0, 1]];
+        for (const [dx, dy] of DEMO_DOORS) {
+          const t = ((dx - x1) * (x2 - x1) + (dy - y1) * (y2 - y1)) / (len * len);
+          const px = x1 + t * (x2 - x1); const py = y1 + t * (y2 - y1);
+          if (t > 0.1 && t < 0.9 && Math.hypot(dx - px, dy - py) < 0.01) {
+            const half = 0.46 / len;
+            spans = [[0, t - half], [t + half, 1]];
+          }
+        }
+        for (const [a, b] of spans) {
+          const sl = (b - a) * len;
+          if (sl < 0.05) continue;
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(sl + 0.14, 1, 0.14), wallMat);
+          wall.position.set(
+            x1 + ((a + b) / 2) * (x2 - x1) - PLAN_W / 2, 0.5,
+            y1 + ((a + b) / 2) * (y2 - y1) - PLAN_H / 2);
+          wall.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
+          wall.castShadow = true; wall.receiveShadow = true;
+          building.add(wall); walls.push(wall);
+        }
       }
 
       const ok = room.circle.conforme;
@@ -228,6 +244,69 @@ export function BuildingScene({
     fixtures.add(toilet, basin, counter);
     building.add(fixtures);
 
+    // A small wheelchair built from primitives: two big rear wheels, two
+    // casters, seat, backrest and armrests. It faces +x in local space.
+    const chair = new THREE.Group();
+    const chairMats: THREE.MeshStandardMaterial[] = [];
+    const chairMat = (color: number, roughness: number) => {
+      const m = new THREE.MeshStandardMaterial({ color, roughness, transparent: true, opacity: 0 });
+      chairMats.push(m);
+      return m;
+    };
+    const rearWheels: THREE.Mesh[] = [];
+    for (const side of [-1, 1]) {
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 10, 28), chairMat(0x22282e, 0.6));
+      wheel.position.set(-0.22, 0.27, side * 0.29);
+      wheel.castShadow = true;
+      chair.add(wheel); rearWheels.push(wheel);
+      const caster = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.028, 8, 20), chairMat(0x22282e, 0.6));
+      caster.position.set(0.3, 0.09, side * 0.24);
+      chair.add(caster);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.05), chairMat(0x1d3557, 0.5));
+      arm.position.set(-0.02, 0.68, side * 0.26);
+      chair.add(arm);
+    }
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.46), chairMat(0x1d3557, 0.5));
+    seat.position.set(0, 0.47, 0); seat.castShadow = true;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.52, 0.46), chairMat(0x1d3557, 0.5));
+    back.position.set(-0.27, 0.76, 0); back.castShadow = true;
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.36), chairMat(0x5a6b7d, 0.4));
+    foot.position.set(0.4, 0.12, 0);
+    chair.add(seat, back, foot);
+    chair.visible = false;
+    building.add(chair);
+
+    // Route in world space (same mapping as the circles): entrance of the
+    // living room to the WC door, then one last stretch into the WC.
+    const route = [...DEMO_PATH, DEMO_PATH_END].map(([x, y]) =>
+      new THREE.Vector3(x - PLAN_W / 2, 0, y - PLAN_H / 2));
+    const segLens: number[] = [];
+    let routeLen = 0; let stopLen = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+      const l = route[i].distanceTo(route[i + 1]);
+      segLens.push(l); routeLen += l;
+      if (i < route.length - 2) stopLen += l;
+    }
+    const routeAt = (dist: number, out: THREE.Vector3) => {
+      let d = Math.min(Math.max(dist, 0), routeLen);
+      for (let i = 0; i < segLens.length; i++) {
+        if (d <= segLens[i] || i === segLens.length - 1) {
+          out.lerpVectors(route[i], route[i + 1], segLens[i] === 0 ? 0 : d / segLens[i]);
+          return Math.atan2(route[i + 1].z - route[i].z, route[i + 1].x - route[i].x);
+        }
+        d -= segLens[i];
+      }
+      out.copy(route[route.length - 1]);
+      return 0;
+    };
+
+    // Green badge that appears over the WC once the fix lands.
+    const fixBadge = labelSprite(locale === "fr" ? "\u00d8 1,50 m" : "\u00d8 1.50 m", "#2e7d32");
+    fixBadge.scale.set(1.9, 0.48, 1);
+    fixBadge.position.set(DEMO_PATH_END[0] - PLAN_W / 2, WALL_H + 0.75, DEMO_PATH_END[1] - PLAN_H / 2 - 0.9);
+    (fixBadge.material as THREE.SpriteMaterial).opacity = 0;
+    building.add(fixBadge);
+
     let raf = 0;
     let current = 0;
     let currentVel = 0;
@@ -287,6 +366,7 @@ export function BuildingScene({
       const wallT = smooth(inChapter(current, 2));
       const circleT = smooth(inChapter(current, 3, 0.45));
       const verdictT = smooth(inChapter(current, 4, 0.6));
+      const fixT = smooth(inChapter(current, 5, 0.7));
 
       dimMat.opacity = dimT * 0.9;
       for (const { sprite } of dimLabels) (sprite.material as THREE.SpriteMaterial).opacity = dimT;
@@ -298,9 +378,13 @@ export function BuildingScene({
         wall.position.y = wall.scale.y / 2 + 0.02;
       }
       const pulse = reducedMotion ? 1 : 0.75 + 0.25 * Math.sin(now / 260);
+      const RED = new THREE.Color(0xc62828); const GREEN = new THREE.Color(0x2e7d32);
       for (const c of circles) {
-        const s = Math.max(0.001, circleT);
+        // The fix: the failing circle grows to the required size and turns green.
+        const grow = c.ok ? 1 : 1 + fixT * (TURNING_DIAMETER_M / failing.circle.diameterM - 1);
+        const s = Math.max(0.001, circleT * grow);
         c.disc.scale.set(s, s, 1); c.ring.scale.set(s, s, 1);
+        if (!c.ok) for (const m of c.mats) m.color.lerpColors(RED, GREEN, fixT);
         // In the verdict chapter, the rooms that pass step back and the failing one pulses.
         const emphasis = c.ok ? 1 - verdictT * 0.45 : 1 + verdictT * (pulse - 1);
         c.mats[0].opacity = circleT * 0.55 * emphasis;
@@ -311,9 +395,26 @@ export function BuildingScene({
       });
       for (const sprite of labelSprites) sprite.position.y = Math.max(0.45, wallT * WALL_H + 0.35);
 
+      // Verdict chapter: the chair rolls to the WC door and stops there.
+      // Fix chapter: it rolls the last stretch in, and the badge fades up.
+      const chairDist = smooth(clamp01(inChapter(current, 4) / 0.65)) * stopLen
+        + smooth(clamp01(inChapter(current, 5) / 0.5)) * (routeLen - stopLen);
+      const chairFade = clamp01(inChapter(current, 4) / 0.12);
+      chair.visible = chairFade > 0;
+      if (chair.visible) {
+        const heading = routeAt(chairDist, tmp);
+        chair.position.set(tmp.x, 0.03, tmp.z);
+        chair.rotation.y = -heading;
+        for (const m of chairMats) m.opacity = chairFade;
+        for (const w of rearWheels) w.rotation.z = -chairDist / 0.27;
+      }
+      (fixBadge.material as THREE.SpriteMaterial).opacity = fixT;
+      fixBadge.position.y = WALL_H + 0.55 + fixT * 0.25;
+
       const camT = smooth((current - chapterRange(2)[0]) / (chapterRange(3)[1] - chapterRange(2)[0]));
-      tmp.lerpVectors(topPos, endPos, camT).lerp(closePos, verdictT);
-      look.copy(target).lerp(closeTarget, verdictT);
+      const closeW = verdictT * (1 - fixT);
+      tmp.lerpVectors(topPos, endPos, camT).lerp(closePos, closeW);
+      look.copy(target).lerp(closeTarget, closeW);
       // Portrait phones need to pull back so the whole plan stays in frame.
       if (camera.aspect < 0.8) tmp.sub(look).multiplyScalar(2.1).add(look);
       camera.position.copy(tmp);

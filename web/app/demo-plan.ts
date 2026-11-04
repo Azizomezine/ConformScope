@@ -64,6 +64,15 @@ export const DEMO_ROOMS: DemoRoom[] = [
   },
 ];
 
+// Door centres on shared walls, in plan metres. The 3D scene leaves a gap
+// in the wall at each one so the wheelchair can pass through.
+export const DEMO_DOORS: [number, number][] = [[5.6, 3.4], [7.9, 4.2]];
+
+// The wheelchair's route: living room -> corridor -> WC door, where it stops.
+export const DEMO_PATH: [number, number][] = [[2.8, 2.1], [5.6, 3.4], [7.8, 3.4], [7.9, 4.2]];
+// After the fix it rolls the last stretch, into the WC.
+export const DEMO_PATH_END: [number, number] = [7.9, 5.6];
+
 export const DEMO_STEPS_EN = [
   {
     eyebrow: "Reading", title: "Reading the plan",
@@ -89,6 +98,11 @@ export const DEMO_STEPS_EN = [
     eyebrow: "Verdict", title: "The WC does not fit",
     text: "Green: a wheelchair can turn around. Red: the WC tops out at Ø1.40 m. You see it before signing.",
     tags: ["Compliant", "Not compliant"],
+  },
+  {
+    eyebrow: "The fix", title: "Move a wall 10 cm, keep the home",
+    text: "Shift the WC partition by 10 cm and the Ø1.50 m circle fits. The wheelchair rolls in — fixed on paper, before anyone signs.",
+    tags: ["+10 cm", "Ø1.50 m fits", "On paper"],
   },
 ] as const;
 
@@ -117,6 +131,11 @@ export const DEMO_STEPS = [
     eyebrow: "Verdict", title: "Le WC ne passe pas",
     text: "Vert : un fauteuil peut y faire demi-tour. Rouge : le WC plafonne à Ø1,40 m. On le voit avant de signer.",
     tags: ["Conforme", "Non conforme"],
+  },
+  {
+    eyebrow: "La correction", title: "On pousse un mur de 10 cm, la maison reste",
+    text: "Décalez la cloison des WC de 10 cm et le cercle de Ø1,50 m passe. Le fauteuil entre — corrigé sur le papier, avant de signer.",
+    tags: ["+10 cm", "Ø1,50 m passe", "Sur le papier"],
   },
 ] as const;
 

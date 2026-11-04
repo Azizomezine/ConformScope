@@ -162,7 +162,7 @@
 .checkHeader { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
 
 /* Pinned story: a tall track whose sticky stage holds the scene and the copy. */
-.story { height: 620vh; position: relative; margin-top: -64px; }
+.story { height: 720vh; position: relative; margin-top: -64px; }
 .stage { --intro: 0; --story: 0; position: sticky; top: 0; height: 100vh; height: 100svh; min-height: 520px; overflow: hidden; background: var(--stage); isolation: isolate; }
 .sceneLayer { position: absolute; inset: 0; }
 .veil { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(232, 237, 242, 0.92) 0%, rgba(232, 237, 242, 0.55) 30%, rgba(232, 237, 242, 0) 52%); opacity: calc(1 - var(--story) * 0.6); }
