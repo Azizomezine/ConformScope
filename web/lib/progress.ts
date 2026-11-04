@@ -47,7 +47,7 @@ export function crept(at: number, [lo, hi]: Band): number {
 }
 
 /** Past this, the wait is called out as longer than usual. */
-const SLOW_MS = 90_000;
+const SLOW_MS = 240_000; // a sheet typically lands in 2–3 minutes
 
 /** m:ss, for the clock beside the bar. */
 export function clockOf(ms: number): string {
