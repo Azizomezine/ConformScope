@@ -6,6 +6,8 @@
 
 ## 📺 Demo
 
+**Live app: <https://www.conformscope.com/>.** Open [**Check a plan**](https://www.conformscope.com/check) and click **Try the sample plan** to run the check on a sample apartment plan, with nothing to upload.
+
 Demo video: [`docs/media/demo.mp4`](docs/media/demo.mp4)
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -145,7 +147,7 @@ npm install
 npm run dev                                     # http://localhost:3000
 ```
 
-Open <http://localhost:3000>, click **Vérifier un plan / Check a plan**, and drop in a PDF or image. You will see the rooms outlined with their areas, each turning circle in green (*Conforme PMR*) or red (*Non conforme PMR (max Ø…)*), and the verdict list beside the plan.
+Open <http://localhost:3000>, click **Vérifier un plan / Check a plan**, and drop in a PDF or image (or click **Try the sample plan**). You will see the rooms outlined with their areas, each turning circle in green (*Conforme PMR*) or red (*Non conforme PMR (max Ø…)*), and the verdict list beside the plan.
 
 ### 5. Try the corrections
 
