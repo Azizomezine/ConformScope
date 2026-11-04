@@ -3,13 +3,17 @@
 Speak slowly: about 2.5 words a second. `[ ]` = read it off the screen on the
 day, never guess. Numbers in sections 1–2 are sourced (bottom of the page).
 
-## 1 · Hook — on camera, at a real step or narrow door (0:00–0:15)
+## 1 · Hook — on camera, in the small toilet you filmed (0:00–0:15)
 
-> "This step is fifteen centimetres high.
-> For me, it's nothing. For someone in a wheelchair, this building ends here.
+> "This toilet is fifty-five centimetres wide.
+> I can walk in. Someone in a wheelchair can't even fit inside.
 > And the worst part? Someone signed off on this plan."
 
-*(Measure the step for real. If it's a door, say "This door is [xx] centimetres wide.")*
+*(Hold the tape measure wall to wall so the 55 is visible, then step in.
+A typical wheelchair is 60–70 cm wide, and needs 150 cm to turn around.)*
+
+*(Payoff: in section 5 the app flags a WC as failing. Your toilet opens the video
+and a WC is the first fail in the demo, so the two link up without you doing anything extra.)*
 
 ## 2 · The problem — over the `Problem` animation (0:15–0:45)
 

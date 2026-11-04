@@ -22,7 +22,7 @@ import {
   type Correction, type Dossier, type ExplainResult, type PlanReading, type Pt, type Sheet,
   type Stage, type Walk,
 } from "@/lib/plan";
-import { bandOf, crept, labelOf, sendingAt } from "@/lib/progress";
+import { bandOf, clockOf, crept, labelOf, sendingAt, waitHintOf } from "@/lib/progress";
 import { cn } from "@/lib/utils";
 import { PreferenceControls, usePreferences } from "@/app/preferences";
 import { translate, type I18nKey } from "@/lib/i18n";
@@ -157,6 +157,16 @@ export function PlanIntake() {
     const id = setInterval(() => setProgress((p) => crept(p, band)), 300);
     return () => clearInterval(id);
   }, [drafting, stage, uploaded]);
+
+  // A clock from the moment the wait starts (upload, check or replay) until it ends, so a
+  // bar that creeps slowly still visibly moves.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed(Date.now() - t0), 1000);
+    return () => { clearInterval(id); setElapsed(0); };
+  }, [busy]);
 
   // Escape puts a correction tool down, as it would any half-made mark.
   useEffect(() => {
@@ -441,7 +451,11 @@ export function PlanIntake() {
             <Progress value={pct} aria-label={t("intake.checkingAria")} className="h-1 rounded-none bg-border" />
             <span className="min-w-[4ch] text-right font-mono text-xs text-primary">{pct}%</span>
           </div>
-          <p className="mt-2 text-left font-mono text-xs text-muted-foreground">{labelOf(stage, sent, locale)}</p>
+          <div className="mt-2 flex items-baseline justify-between gap-3 font-mono text-xs text-muted-foreground">
+            <p className="text-left">{labelOf(stage, sent, locale)}</p>
+            <span className="flex-none tabular-nums">{t("progress.elapsed", { time: clockOf(elapsed) })}</span>
+          </div>
+          <p className="mt-1.5 text-left text-xs text-muted-foreground/80">{waitHintOf(stage, sent, elapsed, locale)}</p>
         </div>
       )}
     </div>
@@ -568,7 +582,13 @@ export function PlanIntake() {
                     <Progress value={pct} aria-label={t("intake.applyingAria")} className="h-1 rounded-none bg-border" />
                     <span className="min-w-[4ch] text-right font-mono text-xs text-primary">{pct}%</span>
                   </div>
-                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">{labelOf(stage, null, locale)}</p>
+                  <div className="mt-1.5 flex items-baseline justify-between gap-3 font-mono text-xs text-muted-foreground">
+                    <p>{labelOf(stage, null, locale)}</p>
+                    <span className="flex-none tabular-nums">{clockOf(elapsed)}</span>
+                  </div>
+                  {stage?.stage === "typing" && (
+                    <p className="mt-1 text-xs text-muted-foreground/80">{waitHintOf(stage, null, elapsed, locale)}</p>
+                  )}
                 </div>
               )}
             </div>

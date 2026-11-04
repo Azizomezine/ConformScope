@@ -46,6 +46,23 @@ export function crept(at: number, [lo, hi]: Band): number {
   return hi - from <= 1 ? from : from + (hi - from) / 60;
 }
 
+/** Past this, the wait is called out as longer than usual. */
+const SLOW_MS = 90_000;
+
+/** m:ss, for the clock beside the bar. */
+export function clockOf(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** How long the auditor should expect to wait, so a bar that sits still does not read
+ *  as stuck: the last stage (typing) is the slow one, and a long wait is said aloud. */
+export function waitHintOf(stage: Stage | null, sent: number | null, elapsedMs: number, locale: Locale = "en"): string {
+  if (elapsedMs > SLOW_MS) return translate(locale, "progress.slow");
+  if (sent === null && stage?.stage === "typing") return translate(locale, "progress.typingHint");
+  return translate(locale, "progress.expect");
+}
+
 /** What the auditor is told the bar is waiting on. */
 export function labelOf(stage: Stage | null, sent: number | null, locale: Locale = "en"): string {
   if (sent !== null) return translate(locale, "progress.sending", { pct: Math.round(sent * 100) });
