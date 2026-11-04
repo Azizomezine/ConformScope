@@ -6,6 +6,8 @@ const API_URL = process.env.API_URL ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  // Hide the floating Next.js dev indicator bubble.
+  devIndicators: false,
   partialPrefetching: true,
   experimental: {
     // Reading a plan with Muse Spark can take longer than the 30 s default.

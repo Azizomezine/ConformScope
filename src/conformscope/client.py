@@ -23,7 +23,7 @@ def make_client() -> OpenAI:
 
 
 VERIFIER_BASE_URL = "https://inference.baseten.co/v1"
-VERIFIER_MODEL = "meta-models/muse-spark-open-1026"  # Muse Spark Open, hackathon build
+VERIFIER_MODEL = "meta-models/muse-spark-open"  # Muse Spark Open (the -1026 hackathon build now 404s)
 
 
 def make_verifier_client() -> OpenAI:

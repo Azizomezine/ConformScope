@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Accessibility, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleDashed, Combine,
-  DoorClosed, FileText, FileUp, PackageX, PenLine, RotateCcw, Ruler,
+  DoorClosed, FileText, FileUp, FlaskConical, PackageX, PenLine, RotateCcw, Ruler,
 } from "lucide-react";
 import { Key, Mark } from "@/components/Cartouche";
 import PlanViewer, { type WalkFrame } from "@/components/PlanViewer";
@@ -38,6 +38,8 @@ const HINTS: Record<Exclude<Mode, "none">, [I18nKey, I18nKey | ""]> = {
   door: ["hint.door1", ""],
   walk: ["hint.walk1", ""],
 };
+
+const SAMPLE_PLAN = "/samples/Plan_Logement_Niveau_02.pdf";
 
 function failure(error: unknown) {
   const locale = typeof document !== "undefined" && document.documentElement.lang === "fr" ? "fr" : "en";
@@ -239,6 +241,17 @@ export function PlanIntake() {
     }
   }
 
+  async function trySample() {
+    try {
+      const response = await fetch(SAMPLE_PLAN);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      await upload(new File([blob], SAMPLE_PLAN.split("/").pop()!, { type: "application/pdf" }));
+    } catch (error) {
+      setFault(failure(error));
+    }
+  }
+
   async function postCorrections(corrections: Correction[]) {
     if (!reading) return;
     setReplaying(true); setFault(null); setStage(null); setProgress(0);
@@ -406,9 +419,15 @@ export function PlanIntake() {
       </p>
 
       {!busy && !over && (
-        <Button className="mt-6" onClick={() => picker.current?.click()}>
-          <FileUp />{t("intake.choose")}
-        </Button>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <Button onClick={() => picker.current?.click()}>
+            <FileUp />{t("intake.choose")}
+          </Button>
+          {/* A proposed plan so the jury can try the check without bringing their own. */}
+          <Button variant="outline" onClick={trySample}>
+            <FlaskConical />{t("intake.sample")}
+          </Button>
+        </div>
       )}
       {!busy && over && !shown && dossier && page !== null && (
         <Button className="mt-4" variant="outline" onClick={() => openSheet(dossier, page, "none")}>

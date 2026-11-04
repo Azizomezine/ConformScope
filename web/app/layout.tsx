@@ -43,7 +43,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en"
+    <html lang="en" suppressHydrationWarning
           className={`${geistSans.variable} ${geistMono.variable} ${letters.variable} ${body.variable} ${dim.variable}`}>
       <body>
         {/* Stamp the stored language/theme on <html> before first paint. */}
