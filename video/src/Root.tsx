@@ -3,6 +3,7 @@ import {DEMO, DemoCut} from './DemoCut';
 import {HandCheck, HAND_CHECK_DURATION} from './HandCheck';
 import {Intro, INTRO_DURATION} from './Intro';
 import {Problem, PROBLEM_DURATION} from './Problem';
+import {Final, FINAL_DURATION} from './Final';
 
 export const RemotionRoot: React.FC = () => (
   <>
@@ -32,5 +33,7 @@ export const RemotionRoot: React.FC = () => (
     <Composition id="Intro" component={Intro} durationInFrames={INTRO_DURATION} fps={30} width={1920} height={1080} />
     {/* Section 5: the screen recording with punch-ins (DEMO.md). */}
     <Composition id="DemoCut" component={DemoCut} durationInFrames={DEMO.seconds * 30} fps={30} width={1920} height={1080} />
+    {/* The submission film: hook, match cut, problem, live demo. */}
+    <Composition id="Final" component={Final} durationInFrames={FINAL_DURATION} fps={30} width={1920} height={1080} />
   </>
 );
